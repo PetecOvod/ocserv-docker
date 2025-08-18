@@ -5,7 +5,8 @@ services:
     build: .
     container_name: ocserv
     ports:
-      - "443:443"
+      - "43443:443/tcp"
+      - "43443:443/udp"
     cap_add:
       - NET_ADMIN
       - NET_RAW
