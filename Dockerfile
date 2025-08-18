@@ -46,7 +46,7 @@ RUN useradd -u 1000 -s /bin/false vpnuser
 
 COPY config/ocserv.conf /etc/ocserv/ocserv.conf
 COPY config/passwd /etc/ocserv/passwd
-COPY templates /etc/ocserv/
+COPY templates /etc/ocserv/templates
 COPY scripts/start.sh /start.sh
 RUN chmod +x /start.sh
 
