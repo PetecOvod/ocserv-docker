@@ -2,7 +2,8 @@ FROM alpine:latest
 
 LABEL maintainer="you@example.com"
 
-ENV OCSERV_VERSION=1.3.0     DEBIAN_FRONTEND=noninteractive
+ENV OCSERV_VERSION=1.3.0 \
+    DEBIAN_FRONTEND=noninteractive
 
 RUN apk add --no-cache \
     build-base \
@@ -32,7 +33,7 @@ RUN apk add --no-cache \
     envsubst
 
 RUN cd /tmp && \
-    curl -LO https://ftp.gnu.org/gnu/ocserv/ocserv-${OCSERV_VERSION}.tar.xz && \
+    curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
     cd ocserv-${OCSERV_VERSION} && \
     ./configure --prefix=/usr --sysconfdir=/etc && \
