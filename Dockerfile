@@ -2,7 +2,7 @@ FROM alpine:latest
 
 LABEL maintainer="you@example.com"
 
-ENV OCSERV_VERSION=1.2.3     DEBIAN_FRONTEND=noninteractive
+ENV OCSERV_VERSION=1.3.0     DEBIAN_FRONTEND=noninteractive
 
 RUN apk add --no-cache \
     build-base \
