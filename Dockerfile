@@ -30,7 +30,8 @@ RUN apk add --no-cache \
     shadow \
     bash \
     certbot \
-    envsubst
+    envsubst \
+    readline-dev
 
 RUN cd /tmp && \
     curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \

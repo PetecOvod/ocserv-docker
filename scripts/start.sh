@@ -1,5 +1,4 @@
 #!/bin/sh
-
 set -e
 CERT_DIR="/etc/ocserv"
 
