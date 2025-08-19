@@ -5,20 +5,20 @@ CERT_DIR="/etc/ocserv"
 if [ ! -f "$CERT_DIR/ca.pem" ]; then
   echo "[INFO] Generating CA certificate..."
   envsubst < "$CERT_DIR/templates/ca.tmpl" > /tmp/ca.tmpl
-  certtool --generate-privkey --outfile "$CERT_DIR/ca-key.pem"
-  certtool --generate-self-signed --load-privkey "$CERT_DIR/ca-key.pem" \
-           --outfile "$CERT_DIR/ca.pem" --template /tmp/ca.tmpl
+  certtool --generate-privkey --outfile "$CERT_DIR/cert/ca-key.pem"
+  certtool --generate-self-signed --load-privkey "$CERT_DIR/cert/ca-key.pem" \
+           --outfile "$CERT_DIR/cert/ca.pem" --template /tmp/ca.tmpl
 fi
 
 if [ ! -f "$CERT_DIR/server-cert.pem" ]; then
   echo "[INFO] Generating server certificate..."
   envsubst < "$CERT_DIR/templates/server.tmpl" > /tmp/server.tmpl
-  certtool --generate-privkey --outfile "$CERT_DIR/server-key.pem"
+  certtool --generate-privkey --outfile "$CERT_DIR/cert/server-key.pem"
   certtool --generate-certificate \
-           --load-privkey "$CERT_DIR/server-key.pem" \
-           --load-ca-certificate "$CERT_DIR/ca.pem" \
-           --load-ca-privkey "$CERT_DIR/ca-key.pem" \
-           --outfile "$CERT_DIR/server-cert.pem" \
+           --load-privkey "$CERT_DIR/cert/server-key.pem" \
+           --load-ca-certificate "$CERT_DIR/cert/ca.pem" \
+           --load-ca-privkey "$CERT_DIR/cert/ca-key.pem" \
+           --outfile "$CERT_DIR/cert/server-cert.pem" \
            --template /tmp/server.tmpl
 fi
 

@@ -1,18 +1,14 @@
-FROM alpine:latest
+# === Stage 1: Build ocserv from source ===
+FROM alpine:latest AS builder
 
-LABEL maintainer="you@example.com"
-
-ENV OCSERV_VERSION=1.3.0 \
-    DEBIAN_FRONTEND=noninteractive
+ENV OCSERV_VERSION=1.3.0
 
 RUN apk add --no-cache \
     build-base \
-    libev-dev \
     gnutls-dev \
+    libev-dev \
     nettle-dev \
-    gmp-dev \
-    linux-headers \
-    libnl3-dev \
+    readline-dev \
     libseccomp-dev \
     gettext-dev \
     intltool \
@@ -20,32 +16,43 @@ RUN apk add --no-cache \
     automake \
     libtool \
     pkgconfig \
-    curl \
-    git \
-    iproute2 \
-    iptables \
-    libxml2-dev \
-    libnl3 \
-    gnutls-utils \
-    shadow \
-    bash \
-    certbot \
-    envsubst \
-    readline-dev
+    curl
 
-RUN cd /tmp && \
-    curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
+WORKDIR /tmp
+
+RUN curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
     cd ocserv-${OCSERV_VERSION} && \
     ./configure --prefix=/usr --sysconfdir=/etc && \
     make -j$(nproc) && \
-    make install && \
-    cd / && rm -rf /tmp/*
+    make install
 
-RUN useradd -u 1000 -s /bin/false vpnuser
+# === Stage 2: Final runtime image ===
+FROM alpine:latest
 
+LABEL maintainer="you@example.com"
+
+RUN apk add --no-cache \
+    gnutls-utils \
+    certbot \
+    shadow \
+    bash \
+    curl \
+    iproute2 \
+    iptables \
+    envsubst
+
+# Create runtime directories and user
+RUN useradd -u 1000 -s /bin/false vpnuser && \
+    mkdir -p /etc/ocserv/templates
+
+# Copy ocserv from builder
+COPY --from=builder /usr /usr
+COPY --from=builder /etc /etc
+
+# Copy project files
 COPY config/ocserv.conf /etc/ocserv/ocserv.conf
-COPY config/passwd /etc/ocserv/passwd
+COPY auth/passwd /etc/ocserv/auth/passwd
 COPY templates /etc/ocserv/templates
 COPY scripts/start.sh /start.sh
 RUN chmod +x /start.sh

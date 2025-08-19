@@ -10,10 +10,13 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
-      - ./config:/etc/ocserv
+      # - ./config/ocserv.conf:/etc/ocserv/ocserv.conf #ocserv config
+      # - ./cert:/etc/ocserv/cert #folder with certificate
     environment:
       - TZ=Europe/Moscow
       - SRV_CN=vpn.example.com
-      - SRV_CA=MyVPN CA
+      - SRV_CA=OCSERV
     restart: unless-stopped
