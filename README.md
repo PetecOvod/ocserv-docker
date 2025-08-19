@@ -1,16 +1,19 @@
 # OpenConnect VPN (ocserv) — Final Stable Docker Edition
 
-A production-ready Docker build for OpenConnect VPN Server (ocserv) with password and certificate authentication, based on Alpine.
+A production-ready Docker build for OpenConnect VPN Server (`ocserv`) with certificate and password authentication, built on Alpine with secure multi-stage build.
+
+---
 
 ## ✅ Features
 
-- Uses modern ocserv.conf with `socket-file` and security options
-- TLS auto-generation on first start (via certtool and templates)
-- Supports Let's Encrypt (manual run)
-- Password-based and certificate-based authentication
-- Works with occtl (admin socket support)
-- Minimal Alpine image, hardened with seccomp/net_raw
-- Tun interface support for real VPN routing
+- Clean `multi-stage` Dockerfile
+- Secure Alpine base image
+- TLS auto-generation on first launch (via `certtool`)
+- Password + certificate authentication
+- Admin socket enabled (works with `occtl`)
+- Let's Encrypt support via `get-cert.sh`
+- Tun device support for real VPN routing
+- Organized project layout (config, scripts, templates)
 
 ---
 
@@ -20,22 +23,35 @@ A production-ready Docker build for OpenConnect VPN Server (ocserv) with passwor
 docker compose up -d --build
 ```
 
-Connect to: `https://your-ip:43443`
+Access the VPN at:
 
-Username: `vpnuser`  
-Password: `password`
+```
+https://your-server-ip:43443
+```
+
+Test user (default):
+```
+Username: vpnuser
+Password: password
+```
 
 ---
 
-## ⚙️ Folder Structure
+## 📁 Folder Structure
 
 ```
 .
-├── config/
-│   ├── ocserv.conf        # Custom server config
-│   └── passwd             # User credentials
-├── templates/             # Certificate templates
-├── scripts/               # Shell helpers (start, add-user, get-cert)
+├── config/             # Main ocserv config file
+│   └── ocserv.conf
+├── auth/               # User credentials
+│   └── passwd
+├── templates/          # Certtool templates
+│   ├── ca.tmpl
+│   └── server.tmpl
+├── scripts/            # Automation and helpers
+│   ├── start.sh        # Autogenerates TLS certs on first run
+│   ├── get-cert.sh     # Get Let's Encrypt certificate
+│   └── add-user.sh     # Add new user (login+password)
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
@@ -43,36 +59,68 @@ Password: `password`
 
 ---
 
-## 🔐 Let's Encrypt
+## ⚙️ Environment Variables (used in TLS generation)
 
-To issue a valid TLS cert (manually):
+Define in `docker-compose.yml` under `environment:`:
 
-```bash
-docker exec -it ocserv ./scripts/get-cert.sh vpn.example.com your@email.com
+```yaml
+    environment:
+      - TZ=Europe/Moscow
+      - SRV_CN=vpn.example.com
+      - SRV_CA=My VPN CA
 ```
 
 ---
 
-## 👤 Add user
+## 🔐 User Management
+
+To add a new user:
 
 ```bash
-docker exec -it ocserv ./scripts/add-user.sh alice s3cret
+docker exec -it ocserv ./scripts/add-user.sh username password
 ```
 
 ---
 
-## 🛠 Admin shell
+## 🔒 Let's Encrypt TLS (manual)
+
+To get a real certificate:
 
 ```bash
-docker exec -it ocserv occtl
+docker exec -it ocserv ./scripts/get-cert.sh vpn.example.com you@example.com
+```
+
+This replaces the self-signed certificate in `/etc/ocserv/cert/`.
+
+---
+
+## 🧠 Notes
+
+- Certificates are stored in: `/etc/ocserv/cert/`
+- Users/password file: `/etc/ocserv/auth/passwd`
+- Default socket: `/var/run/ocserv-socket` (used by `occtl`)
+- All scripts run inside container
+
+---
+
+## ✅ Recommended ocserv.conf values
+
+Ensure these are set:
+
+```ini
+auth = "certificate"
+auth = "plain[passwd=/etc/ocserv/auth/passwd]"
+socket-file = /var/run/ocserv-socket
+tcp-port = 443
+udp-port = 443
+route = default
+seccomp = true
+dtls-legacy = false
+tcp-wrappers = false
+run-as-user = nobody
+run-as-group = nobody
 ```
 
 ---
 
-## 📌 Notes
-
-- Uses `devices: /dev/net/tun` — required for VPN
-- Uses `ocserv-data` named volume to persist certs and config
-- Certs are only generated on first run
-
-MIT Licensed — use and improve!
+MIT License — use, fork, build your secure VPN!
