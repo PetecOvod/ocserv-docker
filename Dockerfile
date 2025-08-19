@@ -52,7 +52,6 @@ COPY --from=builder /etc /etc
 
 # Copy project files
 COPY config/ocserv.conf /etc/ocserv/ocserv.conf
-COPY config/passwd /etc/ocserv/passwd
 COPY templates /etc/ocserv/templates
 COPY scripts /scripts
 RUN chmod +x /scripts/start.sh
