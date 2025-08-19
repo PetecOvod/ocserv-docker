@@ -45,6 +45,7 @@ RUN apk add --no-cache \
 # Create runtime directories and user
 RUN useradd -u 1000 -s /bin/false vpnuser && \
     mkdir -p /etc/ocserv/templates
+    mkdir -p /etc/ocserv/cert
 
 # Copy ocserv from builder
 COPY --from=builder /usr /usr
