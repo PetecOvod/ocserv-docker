@@ -67,7 +67,7 @@ Define in `docker-compose.yml` under `environment:`:
 To add a new user:
 
 ```bash
-docker exec -it ocserv ocpasswd -c ./etc/ocserv/ocpasswd vpnuser
+docker exec -it ocserv ocpasswd -c ./etc/ocserv/passwd username
 ```
 
 ---

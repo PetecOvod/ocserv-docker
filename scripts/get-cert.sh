@@ -16,4 +16,4 @@ certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos --email
 cp /etc/letsencrypt/live/$DOMAIN/fullchain.pem "$CERT_DIR/cert/server-cert.pem"
 cp /etc/letsencrypt/live/$DOMAIN/privkey.pem "$CERT_DIR/cert/server-key.pem"
 
-exec ocserv -f -c "$CERT_DIR/ocserv.conf"
+exec ocserv -f -c "$CERT_DIR/ocserv.conf" -d 2

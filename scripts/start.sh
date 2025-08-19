@@ -23,4 +23,4 @@ if [ ! -f "$CERT_DIR/server-cert.pem" ]; then
 fi
 
 echo "[INFO] Starting OpenConnect VPN server..."
-exec ocserv -f -c "$CERT_DIR/ocserv.conf"
+exec ocserv -f -c "$CERT_DIR/ocserv.conf" -d 2
