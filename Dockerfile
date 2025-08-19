@@ -30,7 +30,7 @@ RUN curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.
 # === Stage 2: Final runtime image ===
 FROM alpine:latest
 
-LABEL maintainer="you@example.com"
+LABEL maintainer="Yaroslav Minaev <mail@minaev.pro>"
 
 RUN apk add --no-cache \
     gnutls-utils \
@@ -44,7 +44,6 @@ RUN apk add --no-cache \
 
 # Create runtime directories and user
 RUN useradd -u 1000 -s /bin/false vpnuser && \
-    mkdir -p /etc/ocserv/templates && \
     mkdir -p /etc/ocserv/cert
 
 # Copy ocserv from builder
@@ -53,9 +52,9 @@ COPY --from=builder /etc /etc
 
 # Copy project files
 COPY config/ocserv.conf /etc/ocserv/ocserv.conf
-COPY auth/passwd /etc/ocserv/auth/passwd
+COPY config/passwd /etc/ocserv/passwd
 COPY templates /etc/ocserv/templates
-COPY scripts/start.sh /start.sh
-RUN chmod +x /start.sh
+COPY scripts /scripts
+RUN chmod +x /scripts/start.sh
 
-CMD ["sh", "/start.sh"]
+CMD ["sh", "/scripts/start.sh"]

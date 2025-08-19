@@ -29,29 +29,20 @@ Access the VPN at:
 https://your-server-ip:43443
 ```
 
-Test user (default):
-```
-Username: vpnuser
-Password: password
-```
-
 ---
 
 ## 📁 Folder Structure
 
 ```
 .
-├── config/             # Main ocserv config file
-│   └── ocserv.conf
-├── auth/               # User credentials
-│   └── passwd
+├── config/            
+│   └── ocserv.conf     # Main ocserv config file
 ├── templates/          # Certtool templates
 │   ├── ca.tmpl
 │   └── server.tmpl
 ├── scripts/            # Automation and helpers
 │   ├── start.sh        # Autogenerates TLS certs on first run
 │   ├── get-cert.sh     # Get Let's Encrypt certificate
-│   └── add-user.sh     # Add new user (login+password)
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
@@ -65,7 +56,6 @@ Define in `docker-compose.yml` under `environment:`:
 
 ```yaml
     environment:
-      - TZ=Europe/Moscow
       - SRV_CN=vpn.example.com
       - SRV_CA=My VPN CA
 ```
@@ -77,7 +67,7 @@ Define in `docker-compose.yml` under `environment:`:
 To add a new user:
 
 ```bash
-docker exec -it ocserv ./scripts/add-user.sh username password
+docker exec -it ocserv ocpasswd -c ./etc/ocserv/ocpasswd vpnuser
 ```
 
 ---
@@ -97,29 +87,8 @@ This replaces the self-signed certificate in `/etc/ocserv/cert/`.
 ## 🧠 Notes
 
 - Certificates are stored in: `/etc/ocserv/cert/`
-- Users/password file: `/etc/ocserv/auth/passwd`
-- Default socket: `/var/run/ocserv-socket` (used by `occtl`)
+- Users/password file: `/etc/ocserv/passwd`
 - All scripts run inside container
-
----
-
-## ✅ Recommended ocserv.conf values
-
-Ensure these are set:
-
-```ini
-auth = "certificate"
-auth = "plain[passwd=/etc/ocserv/auth/passwd]"
-socket-file = /var/run/ocserv-socket
-tcp-port = 443
-udp-port = 443
-route = default
-seccomp = true
-dtls-legacy = false
-tcp-wrappers = false
-run-as-user = nobody
-run-as-group = nobody
-```
 
 ---
 
