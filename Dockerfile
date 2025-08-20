@@ -25,7 +25,7 @@ RUN curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.
     cd ocserv-${OCSERV_VERSION} && \
     ./configure --prefix=/usr --sysconfdir=/etc && \
     make -j$(nproc) && \
-    make install
+    make DESTDIR=/tmp/build-output install
 
 # === Stage 2: Final runtime image ===
 FROM alpine:latest
@@ -34,11 +34,11 @@ LABEL maintainer="Yaroslav Minaev <mail@minaev.pro>"
 
 RUN apk add --no-cache \
     gnutls-utils \
+    libev \
+    libseccomp \
     certbot \
     shadow \
     bash \
-    curl \
-    iproute2 \
     iptables \
     envsubst
 
@@ -47,8 +47,7 @@ RUN useradd -u 1000 -s /bin/false vpnuser && \
     mkdir -p /etc/ocserv/cert
 
 # Copy ocserv from builder
-COPY --from=builder /usr /usr
-COPY --from=builder /etc /etc
+COPY --from=builder /tmp/build-output /
 
 # Copy project files
 COPY config/ocserv.conf /etc/ocserv/ocserv.conf
