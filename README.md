@@ -35,11 +35,10 @@ https://your-server-ip:43443
 
 ```
 .
-├── config/            
-│   └── ocserv.conf     # Main ocserv config file
-├── templates/          # Certtool templates
+├── templates/          # Templates
 │   ├── ca.tmpl
 │   └── server.tmpl
+│   └── ocserv.conf.tmpl
 ├── scripts/            # Automation and helpers
 │   ├── start.sh        # Autogenerates TLS certs on first run
 │   ├── get-cert.sh     # Get Let's Encrypt certificate
@@ -58,6 +57,8 @@ Define in `docker-compose.yml` under `environment:`:
     environment:
       - SRV_CN=vpn.example.com
       - SRV_CA=My VPN CA
+      - USE_IPTABLES_NFT=false        # set to false on Synology/legacy hosts; default is true
+      - VPN_SUBNET=10.10.10.0/24      # CIDR for VPN clients
 ```
 
 ---
@@ -67,7 +68,7 @@ Define in `docker-compose.yml` under `environment:`:
 To add a new user:
 
 ```bash
-docker exec -it ocserv ocpasswd -c ./etc/ocserv/passwd username
+docker exec -it ocserv ocpasswd ./etc/ocserv/auth/passwd username
 ```
 
 ---

@@ -40,17 +40,18 @@ RUN apk add --no-cache \
     shadow \
     bash \
     iptables \
+    iptables-legacy \
     envsubst
 
 # Create runtime directories and user
 RUN useradd -u 1000 -s /bin/false vpnuser && \
-    mkdir -p /etc/ocserv/cert
+    mkdir -p /etc/ocserv/cert && \
+    mkdir -p /etc/ocserv/auth
 
 # Copy ocserv from builder
 COPY --from=builder /tmp/build-output /
 
 # Copy project files
-COPY config/ocserv.conf /etc/ocserv/ocserv.conf
 COPY templates /etc/ocserv/templates
 COPY scripts /scripts
 RUN chmod +x /scripts/start.sh
