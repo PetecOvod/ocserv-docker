@@ -141,4 +141,4 @@ docker restart ocserv
 ```
 ---
 
-MIT License — use, fork, build your secure VPN!
+Apache License 2.0
