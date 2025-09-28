@@ -1,0 +1,25 @@
+# Git & VCS
+.git
+.gitignore
+
+# Node/NPM (just in case)
+node_modules
+npm-debug.log
+yarn.lock
+
+# Python
+__pycache__
+
+# Local volumes & runtime artifacts
+acme/
+auth/
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
