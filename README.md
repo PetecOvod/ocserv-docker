@@ -85,7 +85,9 @@ On first boot `start.sh` will:
 
 ---
 
-## 🔐 Users (file auth)
+## 🔐 Users
+
+### Password auth
 
 Add a user:
 ```bash
@@ -96,7 +98,14 @@ Delete a user:
 docker exec ocserv ocpasswd -c /etc/ocserv/passwd -d vpnuser
 ```
 
-> File auth is enabled by default: `auth = "plain[passwd=/etc/ocserv/passwd]"`
+### Certificate auth
+
+```bash
+docker exec -it ocserv ./scripts/make-client.sh alice export
+```
+Files will be stored under `/etc/ocserv/auth/clients/`:
+- `alice-key.pem`, `alice-cert.pem`
+- optional `alice.p12` (if you passed `export`)
 
 ---
 
