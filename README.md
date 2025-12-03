@@ -69,6 +69,36 @@ cap_add:
   - NET_ADMIN
 ```
 
+## 🧩 Docker Compose
+```yaml
+services:
+  ocserv:
+    image: docker.io/petecovod/ocserv:latest
+    container_name: ocserv
+    ports:
+      - "43443:443/tcp"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./ocserv/cert/:/etc/ocserv/cert
+      - ./ocserv/auth:/etc/ocserv/auth
+      - ./ocserv/acme:/etc/acme
+    environment:
+      - PUID=1027 # Change me use id $user for check
+      - PGID=100 # Change me use id $user for check
+      - TZ=Europe/Moscow
+      - SRV_CN=vpn.example.com # Change me
+      - SRV_CA=VPN
+      - VPN_SUBNET=10.10.10.0/24
+      # ACME (for get-cert.sh)
+      - ACME_ACCOUNT_EMAIL=admin@example.com # Change me
+      - ACME_SERVER=letsencrypt #zerossl/buypass
+    restart: unless-stopped
+    network_mode: "bridge"
+```
+
 ---
 
 ## 🚀 First run

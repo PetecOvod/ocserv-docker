@@ -24,6 +24,8 @@ MODE="$1"
 
 # --- defaults ---
 ACME_HOME="/etc/acme"
+ACME_WORKDIR="${ACME_WORKDIR:-/usr/local/share}"
+DNSAPI_DIR="${DNSAPI_DIR:-$ACME_WORKDIR/dnsapi}"
 HTTP_PORT=80
 ECC=true
 STAGING=false
@@ -80,13 +82,35 @@ case "$MODE" in
     ;;
   dns)
     PROVIDER_ENV="$ACME_HOME/provider.env"
-    [ -f "$PROVIDER_ENV" ] && . "$PROVIDER_ENV"
+    if [ -f "$PROVIDER_ENV" ]; then
+      # Auto-export all variables from provider.env so acme.sh and dnsapi see them
+      set -a
+      . "$PROVIDER_ENV"
+      set +a
+    fi
     if [ -z "${ACME_DNS:-}" ]; then
       echo "[ERR] DNS mode selected but ACME_DNS is not set."
       echo "      Put provider settings into $PROVIDER_ENV, e.g.:"
       echo "        ACME_DNS=dns_cf"
       echo "        CF_Token=..."
       exit 3
+    fi
+    # Ensure required dnsapi hook script exists for selected ACME_DNS provider
+    if [ -n "${ACME_DNS:-}" ]; then
+      _plugin_file="${ACME_DNS}.sh"
+      _plugin_path="$DNSAPI_DIR/$_plugin_file"
+      if [ ! -f "$_plugin_path" ]; then
+        echo "[INFO] DNS API plugin $ACME_DNS not found at $_plugin_path, downloading..."
+        mkdir -p "$DNSAPI_DIR"
+        _plugin_url="https://raw.githubusercontent.com/acmesh-official/acme.sh/master/dnsapi/$_plugin_file"
+        if curl -fsSLo "$_plugin_path" "$_plugin_url"; then
+          chmod +x "$_plugin_path"
+          echo "[INFO] Downloaded DNS API plugin from $_plugin_url"
+        else
+          echo "[ERR] Failed to download DNS API plugin from $_plugin_url"
+          exit 5
+        fi
+      fi
     fi
     echo "[INFO] Issuing via DNS-01 using plugin: $ACME_DNS for $DOMAIN"
     "$ACME_BIN" --home "$ACME_HOME" --server "$SERVER" \
