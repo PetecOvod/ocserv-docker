@@ -121,11 +121,11 @@ On first boot `start.sh` will:
 
 Add a user:
 ```bash
-docker exec -it ocserv ocpasswd -c /etc/ocserv/passwd vpnuser
+docker exec -it ocserv ocpasswd -c /etc/ocserv/auth/passwd vpnuser
 ```
 Delete a user:
 ```bash
-docker exec ocserv ocpasswd -c /etc/ocserv/passwd -d vpnuser
+docker exec -it ocserv ocpasswd -c /etc/ocserv/auth/passwd -d vpnuser
 ```
 
 ### Certificate auth
