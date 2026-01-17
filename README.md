@@ -30,6 +30,22 @@ A production-ready Docker build for OpenConnect VPN Server (`ocserv`) with certi
 
 ---
 
+---
+
+## 🧰 Config file (`ocserv.conf`)
+
+The container uses `/etc/ocserv/config/ocserv.conf`. Mount a host folder to keep and edit it:
+
+```yaml
+volumes:
+  - ./ocserv/config:/etc/ocserv/config
+```
+
+- First start: `ocserv.conf` is generated from `templates/ocserv.conf.tmpl`.
+- Next starts: if `ocserv.conf` already exists, it won’t be overwritten.
+
+---
+
 ## 🧩 Environment (compose)
 
 Add under `services.ocserv.environment`:
@@ -54,7 +70,11 @@ volumes:
   - ./ocserv/cert/:/etc/ocserv/cert
   - ./ocserv/auth:/etc/ocserv/auth
   - ./ocserv/acme:/etc/acme
+  - ./ocserv/config:/etc/ocserv/config   # generated ocserv.conf lives here
 ```
+
+On first start the container will generate `./ocserv/config/ocserv.conf` from the template.
+If the file already exists, it will be used as-is.
 
 Ports (example when host 443 is busy):
 ```yaml
@@ -89,6 +109,7 @@ services:
       - ./ocserv/cert/:/etc/ocserv/cert
       - ./ocserv/auth:/etc/ocserv/auth
       - ./ocserv/acme:/etc/acme
+      - ./ocserv/config:/etc/ocserv/config
     environment:
       - PUID=1027 # Change me use id $user for check
       - PGID=100 # Change me use id $user for check
@@ -128,7 +149,7 @@ docker compose up -d ocserv
 ```
 
 On first boot `start.sh` will:
-- render templates with env (`SRV_CN`, `SRV_CA`) via `envsubst`,
+- render templates with env (`SRV_CN`, `SRV_CA`, etc.) via `envsubst` and write `/etc/ocserv/config/ocserv.conf`,
 - generate a self-signed CA and server certificate under `/etc/ocserv/cert`,
 - configure iptables in dedicated chains and attach to `POSTROUTING`/`FORWARD`,
 - start ocserv (PID 1) and **auto-clean iptables** on exit.

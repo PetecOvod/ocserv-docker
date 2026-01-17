@@ -4,6 +4,8 @@ set -e
 CERT_DIR="/etc/ocserv"
 TEMPL_DIR="$CERT_DIR/templates"
 AUTH_DIR="$CERT_DIR/auth"
+CONF_DIR="$CERT_DIR/config"
+CONF_FILE="$CONF_DIR/ocserv.conf"
 
 log() { echo "[START.SH] $*"; }
 
@@ -133,6 +135,7 @@ cleanup_iptables() {
 # -------------------------------------
 # Files & templates
 # -------------------------------------
+mkdir -p "$CONF_DIR"
 # Ensure passwd exists (when auth volume is empty)
 if [ ! -f "$AUTH_DIR/passwd" ]; then
   : > "$AUTH_DIR/passwd"
@@ -162,29 +165,17 @@ if [ ! -f "$CERT_DIR/cert/server-cert.pem" ] && [ -f "$TEMPL_DIR/server.tmpl" ];
     --template /tmp/server.tmpl
 fi
 
-# Render ocserv.conf from template (if present)
-#
-# Some deployments bind-mount /etc/ocserv/ocserv.conf (often read-only) to keep
-# a fully custom config. In that case, attempting to overwrite the file would
-# fail and (because of `set -e`) crash the container.
+# Render ocserv.conf into /etc/ocserv/config (if present)
 #
 # Behavior:
-# - If ocserv.conf exists but is NOT writable, we keep it as-is.
-# - Otherwise, we render from the template as before.
+# - If $CONF_FILE exists, keep it as-is.
+# - Otherwise generate it from the template.
 if [ -f "$TEMPL_DIR/ocserv.conf.tmpl" ]; then
-  if [ -f "$CERT_DIR/ocserv.conf" ] && [ ! -w "$CERT_DIR/ocserv.conf" ]; then
-    log "ocserv.conf exists but is not writable (likely a bind-mount). Skipping template render."
+  if [ -f "$CONF_FILE" ]; then
+    log "Using existing ocserv.conf: $CONF_FILE"
   else
-    log "Rendering ocserv.conf from template..."
-    tmpfile="$(mktemp)"
-    envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$tmpfile"
-    # Use mv for atomic replace when possible
-    if mv "$tmpfile" "$CERT_DIR/ocserv.conf" 2>/dev/null; then
-      :
-    else
-      cat "$tmpfile" > "$CERT_DIR/ocserv.conf"
-      rm -f "$tmpfile"
-    fi
+    log "Generating ocserv.conf from template -> $CONF_FILE"
+    envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$CONF_FILE"
   fi
 fi
 
@@ -216,7 +207,7 @@ apply_iptables
 
 # Start ocserv in background (not exec, so traps will run)
 log "Starting OpenConnect VPN server..."
-ocserv -f -c "$CERT_DIR/ocserv.conf" -d 2 &
+ocserv -f -c "$CONF_FILE" -d 2 &
 ocserv_pid=$!
 
 # Wait for ocserv to exit (container exits with same code; cleanup runs in trap)
