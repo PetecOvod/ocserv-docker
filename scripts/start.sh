@@ -26,6 +26,21 @@ log "Using iptables binary: $IPT ${IPT_VER:+($IPT_VER)}"
 # -----------------------------
 VPN_SUBNET="${VPN_SUBNET:-10.10.10.0/24}"
 
+# -----------------------------
+# DTLS/UDP toggle via env
+# -----------------------------
+# ENABLE_DTLS: true|false (default: true)
+# When disabled, we set UDP_PORT=0 which prevents DTLS/UDP sessions.
+ENABLE_DTLS="${ENABLE_DTLS:-true}"
+_dtls_lower="$(echo "$ENABLE_DTLS" | tr '[:upper:]' '[:lower:]')"
+if [ "$_dtls_lower" = "false" ] || [ "$_dtls_lower" = "0" ] || [ "$_dtls_lower" = "no" ]; then
+  UDP_PORT=0
+else
+  UDP_PORT="${UDP_PORT:-443}"
+fi
+export UDP_PORT
+log "DTLS/UDP: ENABLE_DTLS='${ENABLE_DTLS}' -> UDP_PORT='${UDP_PORT}'"
+
 # Auto-detect egress interface from default route
 detect_wan_if() {
   ip -4 route list default 2>/dev/null | awk '
@@ -148,9 +163,29 @@ if [ ! -f "$CERT_DIR/cert/server-cert.pem" ] && [ -f "$TEMPL_DIR/server.tmpl" ];
 fi
 
 # Render ocserv.conf from template (if present)
+#
+# Some deployments bind-mount /etc/ocserv/ocserv.conf (often read-only) to keep
+# a fully custom config. In that case, attempting to overwrite the file would
+# fail and (because of `set -e`) crash the container.
+#
+# Behavior:
+# - If ocserv.conf exists but is NOT writable, we keep it as-is.
+# - Otherwise, we render from the template as before.
 if [ -f "$TEMPL_DIR/ocserv.conf.tmpl" ]; then
-  log "Rendering ocserv.conf from template..."
-  envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$CERT_DIR/ocserv.conf"
+  if [ -f "$CERT_DIR/ocserv.conf" ] && [ ! -w "$CERT_DIR/ocserv.conf" ]; then
+    log "ocserv.conf exists but is not writable (likely a bind-mount). Skipping template render."
+  else
+    log "Rendering ocserv.conf from template..."
+    tmpfile="$(mktemp)"
+    envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$tmpfile"
+    # Use mv for atomic replace when possible
+    if mv "$tmpfile" "$CERT_DIR/ocserv.conf" 2>/dev/null; then
+      :
+    else
+      cat "$tmpfile" > "$CERT_DIR/ocserv.conf"
+      rm -f "$tmpfile"
+    fi
+  fi
 fi
 
 # -------------------------------------

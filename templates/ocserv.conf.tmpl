@@ -83,7 +83,10 @@ enable-auth = "certificate"
 # Note: These options are controlled by ocserv.socket if socket-activated
 # version of systemd configuration is used
 tcp-port = 443
-# udp-port = 443
+# DTLS/UDP port number.
+# - Default: 443
+# - Disable DTLS/UDP: set ENABLE_DTLS=false (container will set UDP_PORT=0)
+udp-port = ${UDP_PORT}
 
 # Accept connections using a socket file. It accepts HTTP
 # connections (i.e., without SSL/TLS unlike its TCP counterpart),

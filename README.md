@@ -39,6 +39,7 @@ environment:
   # Base
   - VPN_SUBNET=10.10.10.0/24
   - USE_IPTABLES_NFT=true      # set false on legacy hosts (e.g. Synology)
+  - ENABLE_DTLS=true           # set false to force TCP-only (DTLS/UDP disabled)
   # Self-signed bootstrap
   - SRV_CN=vpn.example.com   # server CN
   - SRV_CA=VPN CA            # self-signed CA name
@@ -59,6 +60,8 @@ Ports (example when host 443 is busy):
 ```yaml
 ports:
   - "43443:443/tcp"
+  # Optional but recommended for better performance (DTLS over UDP):
+  - "43443:443/udp"
 ```
 
 Capabilities & device:
@@ -77,6 +80,7 @@ services:
     container_name: ocserv
     ports:
       - "43443:443/tcp"
+      - "43443:443/udp"   # optional (DTLS)
     cap_add:
       - NET_ADMIN
     devices:
@@ -92,12 +96,28 @@ services:
       - SRV_CN=vpn.example.com # Change me
       - SRV_CA=VPN
       - VPN_SUBNET=10.10.10.0/24
+      - ENABLE_DTLS=true
       # ACME (for get-cert.sh)
       - ACME_ACCOUNT_EMAIL=admin@example.com # Change me
       - ACME_SERVER=letsencrypt #zerossl/buypass
     restart: unless-stopped
     network_mode: "bridge"
 ```
+
+---
+
+## ⚡ DTLS (UDP) and `ENABLE_DTLS`
+
+OpenConnect uses TCP (CSTP) for control and can use DTLS over UDP for data when available.
+UDP is **optional**: if it’s blocked on a network, clients will fall back to TCP automatically.
+Note: TCP BBR affects only TCP traffic; DTLS uses UDP and is not governed by TCP congestion control.
+
+Toggle DTLS/UDP with:
+
+- `ENABLE_DTLS=true` (default): DTLS enabled, `udp-port` is set to `443` by default.
+- `ENABLE_DTLS=false`: DTLS disabled, `udp-port` is set to `0` (TCP-only).
+
+If you set `ENABLE_DTLS=false`, you can also omit the UDP port mapping (`443/udp`).
 
 ---
 
@@ -112,6 +132,7 @@ On first boot `start.sh` will:
 - generate a self-signed CA and server certificate under `/etc/ocserv/cert`,
 - configure iptables in dedicated chains and attach to `POSTROUTING`/`FORWARD`,
 - start ocserv (PID 1) and **auto-clean iptables** on exit.
+
 
 ---
 
