@@ -1,0 +1,247 @@
+#!/bin/sh
+# ocs — friendly command-line interface for managing this ocserv container.
+#
+# Usage:  ocs <command> [args]      (run inside the container)
+# From the host, e.g.:  docker exec -it ocserv ocs user add alice
+# Tip (host alias):      alias ocs='docker exec -it ocserv ocs'
+#
+# Thin, well-validated wrapper around the tools already in the image
+# (occtl, ocpasswd, certtool/openssl) and the existing scripts
+# (get-cert.sh, make-client.sh), with clear errors and discoverable help.
+set -eu
+
+# --- paths (container-fixed; overridable for testing) ---
+SCRIPTS_DIR="${SCRIPTS_DIR:-/scripts}"
+OCSERV_DIR="${OCSERV_DIR:-/etc/ocserv}"
+AUTH_DIR="${AUTH_DIR:-$OCSERV_DIR/auth}"
+PASSWD="${OCPASSWD_FILE:-$AUTH_DIR/passwd}"
+CLIENTS_DIR="$AUTH_DIR/clients"
+SERVER_CERT="${SERVER_CERT:-$OCSERV_DIR/cert/server-cert.pem}"
+
+PROG="ocs"
+VERSION="1.0.0"
+
+# --- pretty output (colors only on a TTY) ---
+if [ -t 1 ]; then
+  C_RED="$(printf '\033[31m')"; C_GRN="$(printf '\033[32m')"
+  C_YEL="$(printf '\033[33m')"; C_DIM="$(printf '\033[2m')"; C_RST="$(printf '\033[0m')"
+else
+  C_RED=""; C_GRN=""; C_YEL=""; C_DIM=""; C_RST=""
+fi
+ok()   { printf '%s[OK]%s %s\n'   "$C_GRN" "$C_RST" "$*"; }
+info() { printf '%s[..]%s %s\n'   "$C_DIM" "$C_RST" "$*"; }
+warn() { printf '%s[!!]%s %s\n'   "$C_YEL" "$C_RST" "$*" >&2; }
+die()  { printf '%s[ERR]%s %s\n'  "$C_RED" "$C_RST" "$*" >&2; exit 1; }
+
+# --- helpers ---
+need_arg() { [ -n "${1:-}" ] || die "$2"; }
+
+valid_name() {
+  # allow letters, digits, dot, underscore, hyphen; non-empty
+  case "$1" in
+    "")            return 1 ;;
+    *[!A-Za-z0-9._-]*) return 1 ;;
+    *)             return 0 ;;
+  esac
+}
+
+require_name() {
+  need_arg "${1:-}" "$2"
+  valid_name "$1" || die "invalid name '$1' (allowed: letters, digits, . _ -)"
+}
+
+user_exists() {
+  [ -f "$PASSWD" ] && cut -d: -f1 "$PASSWD" | grep -qx "$1"
+}
+
+require_tty() {
+  [ -t 0 ] || die "this command needs an interactive terminal — run it as: docker exec -it ocserv $PROG $1"
+}
+
+# ============================ commands ============================
+
+cmd_user() {
+  sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    list|ls)
+      if [ ! -s "$PASSWD" ]; then echo "No users."; return 0; fi
+      n=0
+      cut -d: -f1 "$PASSWD" | sort | while IFS= read -r u; do
+        [ -n "$u" ] && printf '  %s\n' "$u"
+      done
+      n=$(grep -c '' "$PASSWD" 2>/dev/null || echo 0)
+      printf '%s%d user(s)%s\n' "$C_DIM" "$n" "$C_RST"
+      ;;
+    add|create)
+      name="${1:-}"; require_name "$name" "usage: $PROG user add <name>"
+      user_exists "$name" && die "user '$name' already exists — use '$PROG user passwd $name' to change the password"
+      require_tty "user add <name>"
+      mkdir -p "$AUTH_DIR"
+      info "creating user '$name' (you will be prompted for a password)"
+      if ocpasswd -c "$PASSWD" "$name"; then ok "user '$name' created"; else die "failed to create user '$name'"; fi
+      ;;
+    passwd|password)
+      name="${1:-}"; require_name "$name" "usage: $PROG user passwd <name>"
+      user_exists "$name" || die "no such user '$name' — see '$PROG user list'"
+      require_tty "user passwd <name>"
+      info "changing password for '$name'"
+      if ocpasswd -c "$PASSWD" "$name"; then ok "password updated for '$name'"; else die "failed to update password for '$name'"; fi
+      ;;
+    del|delete|rm|remove)
+      name="${1:-}"; require_name "$name" "usage: $PROG user del <name>"
+      user_exists "$name" || die "no such user '$name' — see '$PROG user list'"
+      if ocpasswd -c "$PASSWD" -d "$name"; then ok "user '$name' deleted"; else die "failed to delete user '$name'"; fi
+      ;;
+    ""|help|-h|--help)
+      cat <<EOF
+$PROG user — manage password-auth VPN users
+
+  $PROG user list                list all users
+  $PROG user add <name>          create a user (prompts for password)
+  $PROG user passwd <name>       change a user's password
+  $PROG user del <name>          delete a user
+EOF
+      ;;
+    *) die "unknown subcommand 'user $sub' — try '$PROG user help'" ;;
+  esac
+}
+
+cmd_client() {
+  sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    issue|new|create)
+      name=""; p12=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --p12) p12="export" ;;
+          -*)    die "unknown flag '$1' — usage: $PROG client issue <name> [--p12]" ;;
+          *)     [ -z "$name" ] && name="$1" || die "unexpected argument '$1'" ;;
+        esac
+        shift
+      done
+      require_name "$name" "usage: $PROG client issue <name> [--p12]"
+      [ -x "$SCRIPTS_DIR/make-client.sh" ] || die "missing $SCRIPTS_DIR/make-client.sh"
+      info "issuing client certificate for '$name'"
+      sh "$SCRIPTS_DIR/make-client.sh" "$name" $p12
+      ok "client files are in $CLIENTS_DIR/"
+      ;;
+    ""|help|-h|--help)
+      cat <<EOF
+$PROG client — issue client certificates (certificate auth)
+
+  $PROG client issue <name>          create client key + cert
+  $PROG client issue <name> --p12    also export a .p12 bundle (for import on devices)
+EOF
+      ;;
+    *) die "unknown subcommand 'client $sub' — try '$PROG client help'" ;;
+  esac
+}
+
+cmd_cert() {
+  sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    issue|renew|get)
+      mode="${1:-}"
+      case "$mode" in
+        http|dns) ;;
+        "") die "usage: $PROG cert issue <http|dns>" ;;
+        *)  die "unknown mode '$mode' — expected 'http' or 'dns'" ;;
+      esac
+      [ -x "$SCRIPTS_DIR/get-cert.sh" ] || die "missing $SCRIPTS_DIR/get-cert.sh"
+      sh "$SCRIPTS_DIR/get-cert.sh" "$mode"
+      ;;
+    info|status|show)
+      [ -f "$SERVER_CERT" ] || die "server certificate not found: $SERVER_CERT"
+      command -v openssl >/dev/null 2>&1 || die "openssl not available"
+      subject="$(openssl x509 -in "$SERVER_CERT" -noout -subject 2>/dev/null | sed 's/^subject= *//')"
+      issuer="$(openssl x509 -in "$SERVER_CERT" -noout -issuer 2>/dev/null | sed 's/^issuer= *//')"
+      enddate="$(openssl x509 -in "$SERVER_CERT" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+      printf 'Subject : %s\n' "$subject"
+      printf 'Issuer  : %s\n' "$issuer"
+      printf 'Expires : %s\n' "$enddate"
+      if   ! openssl x509 -in "$SERVER_CERT" -noout -checkend 0 >/dev/null 2>&1; then
+        die "certificate has EXPIRED — renew with '$PROG cert issue <http|dns>'"
+      elif ! openssl x509 -in "$SERVER_CERT" -noout -checkend $((14*86400)) >/dev/null 2>&1; then
+        warn "certificate expires within 14 days — renew soon"
+      elif ! openssl x509 -in "$SERVER_CERT" -noout -checkend $((30*86400)) >/dev/null 2>&1; then
+        info "certificate is within the 30-day renewal window"
+      else
+        ok "certificate is valid"
+      fi
+      ;;
+    ""|help|-h|--help)
+      cat <<EOF
+$PROG cert — server (Let's Encrypt) certificate
+
+  $PROG cert issue <http|dns>    issue/renew via acme.sh (HTTP-01 or DNS-01)
+  $PROG cert info                show subject, issuer, expiry and validity status
+EOF
+      ;;
+    *) die "unknown subcommand 'cert $sub' — try '$PROG cert help'" ;;
+  esac
+}
+
+cmd_session() {
+  sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    list|ls)
+      occtl show users
+      ;;
+    kill|disconnect|drop)
+      name="${1:-}"; require_name "$name" "usage: $PROG session kill <name>"
+      info "disconnecting sessions of user '$name'"
+      if occtl disconnect user "$name"; then ok "disconnected '$name'"; else die "failed to disconnect '$name' (is the user connected?)"; fi
+      ;;
+    ""|help|-h|--help)
+      cat <<EOF
+$PROG session — active VPN sessions
+
+  $PROG session list             list connected users (RX/TX, IP, since)
+  $PROG session kill <name>      disconnect all sessions of a user
+EOF
+      ;;
+    *) die "unknown subcommand 'session $sub' — try '$PROG session help'" ;;
+  esac
+}
+
+cmd_status() { occtl show status; }
+
+cmd_version() {
+  printf '%s %s\n' "$PROG" "$VERSION"
+  ocserv -v 2>/dev/null | head -n1 || true
+}
+
+usage() {
+  cat <<EOF
+$PROG $VERSION — manage this ocserv container
+
+Usage: $PROG <command> [args]
+
+Commands:
+  user      manage password-auth users (list, add, passwd, del)
+  client    issue client certificates (certificate auth)
+  cert      issue/renew the server cert and show its status
+  session   list active sessions and disconnect users
+  status    show server status (uptime, sessions, bans)
+  version   show versions
+  help      show this help
+
+Run '$PROG <command> help' for command-specific usage.
+
+From the host:  docker exec -it ocserv $PROG <command> [args]
+Handy alias:    alias ocs='docker exec -it ocserv ocs'
+EOF
+}
+
+# ============================ dispatch ============================
+cmd="${1:-help}"; shift 2>/dev/null || true
+case "$cmd" in
+  user)              cmd_user "$@" ;;
+  client)            cmd_client "$@" ;;
+  cert)              cmd_cert "$@" ;;
+  session|sessions)  cmd_session "$@" ;;
+  status)            cmd_status ;;
+  version|--version|-V) cmd_version ;;
+  help|-h|--help|"") usage ;;
+  *) die "unknown command '$cmd' — run '$PROG help'" ;;
+esac

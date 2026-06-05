@@ -157,27 +157,63 @@ On first boot `start.sh` will:
 
 ---
 
+## 🛠️ `ocs` — management CLI
+
+The image ships `ocs`, a small CLI that wraps the common operations with
+validation, clear errors and `--help`, so you don't have to remember long
+`ocpasswd` / `occtl` invocations.
+
+```bash
+docker exec -it ocserv ocs help
+```
+
+Handy host alias:
+
+```bash
+alias ocs='docker exec -it ocserv ocs'
+# then simply:  ocs user add alice
+```
+
+Commands:
+
+```
+ocs user list                 # list password-auth users
+ocs user add <name>           # create a user (prompts for password)
+ocs user passwd <name>        # change a user's password
+ocs user del <name>           # delete a user
+ocs client issue <name>       # issue a client cert (cert auth)
+ocs client issue <name> --p12 #   ...and export a .p12 for device import
+ocs cert issue <http|dns>     # issue/renew the server cert (acme.sh)
+ocs cert info                 # server cert subject/issuer/expiry + status
+ocs session list              # active VPN sessions
+ocs session kill <name>       # disconnect a user
+ocs status                    # server status (uptime, sessions, bans)
+```
+
+> The underlying scripts (`get-cert.sh`, `make-client.sh`) and raw tools
+> (`ocpasswd`, `occtl`) still work directly for backward compatibility; `ocs`
+> is just the friendlier front door.
+
 ## 🔐 Users
 
 ### Password auth
 
-Add a user:
 ```bash
-docker exec -it ocserv ocpasswd -c /etc/ocserv/auth/passwd vpnuser
+docker exec -it ocserv ocs user add vpnuser     # add (prompts for password)
+docker exec -it ocserv ocs user del vpnuser     # remove
+docker exec -it ocserv ocs user list            # list
 ```
-Delete a user:
-```bash
-docker exec -it ocserv ocpasswd -c /etc/ocserv/auth/passwd -d vpnuser
-```
+
+Raw equivalent: `ocpasswd -c /etc/ocserv/auth/passwd [-d] vpnuser`.
 
 ### Certificate auth
 
 ```bash
-docker exec -it ocserv ./scripts/make-client.sh alice export
+docker exec -it ocserv ocs client issue alice --p12
 ```
-Files will be stored under `/etc/ocserv/auth/clients/`:
+Files are stored under `/etc/ocserv/auth/clients/`:
 - `alice-key.pem`, `alice-cert.pem`
-- optional `alice.p12` (if you passed `export`)
+- optional `alice.p12` (with `--p12`)
 
 ---
 
@@ -189,9 +225,9 @@ Requirements:
 - Public **port 80** must reach this container (map `80:80` or forward via reverse proxy).
 - DNS A/AAAA records point to your public IP.
 
-Issue:
+Issue (`ocs cert issue http` is equivalent):
 ```bash
-docker exec -it ocserv ./scripts/get-cert.sh http
+docker exec -it ocserv ocs cert issue http
 docker restart ocserv
 ```
 
@@ -206,11 +242,34 @@ ACME_DNS=dns_cf
 CF_Token=YOUR_CF_API_TOKEN
 CF_Account_ID=YOUR_CF_ACCOUNT_ID
 ```
-2) Issue:
+2) Issue (`ocs cert issue dns` is equivalent):
 ```bash
-docker exec -it ocserv ./scripts/get-cert.sh dns
+docker exec -it ocserv ocs cert issue dns
 docker restart ocserv
 ```
+
+Provider secrets are saved by acme.sh into `/etc/acme/account.conf` (the
+`./acme` volume), so they persist and are reused automatically on renewal.
+
+### Auto-renewal
+
+`get-cert.sh` is safe to run on a schedule: `acme.sh` skips when the cert is not
+yet due (no CA request, no DNS challenge) and only reissues within the renewal
+window (~30 days before expiry). Schedule the same two commands (e.g. every two
+weeks) with any host scheduler (cron, systemd timer, Synology Task Scheduler),
+**without the `-it` flags**:
+
+```bash
+docker exec ocserv /scripts/get-cert.sh dns   # or: http
+docker restart ocserv
+```
+
+Example crontab entry (every two weeks):
+
+```cron
+0 4 1,15 * * docker exec ocserv /scripts/get-cert.sh dns && docker restart ocserv
+```
+
 ---
 
 Apache License 2.0

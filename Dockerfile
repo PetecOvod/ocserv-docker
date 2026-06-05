@@ -76,6 +76,7 @@ COPY --from=builder /tmp/build-output /
 # Copy project files
 COPY templates /etc/ocserv/templates
 COPY scripts /scripts
-RUN chmod +x /scripts/start.sh
+RUN chmod +x /scripts/start.sh /scripts/ocs \
+ && ln -sf /scripts/ocs /usr/local/bin/ocs
 
 CMD ["sh", "/scripts/start.sh"]
