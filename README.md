@@ -248,6 +248,12 @@ docker exec -it ocserv ocs cert issue dns
 docker restart ocserv
 ```
 
+The DNS plugin is downloaded on first use from the same acme.sh release as the one
+in the image (`ACME_VERSION`), not from `master`. To pin the exact file, put its
+sha256 into `ACME_DNS_SHA256` (in `provider.env` or the compose `environment`):
+a mismatch stops the script. A plugin mounted read-only as
+`/usr/local/share/dnsapi/<name>.sh` is used as is, without download.
+
 Provider secrets are saved by acme.sh into `/etc/acme/account.conf` (the
 `./acme` volume), so they persist and are reused automatically on renewal.
 

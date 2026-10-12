@@ -2,6 +2,7 @@
 FROM alpine:latest AS builder
 
 ENV OCSERV_VERSION=1.3.0
+ARG OCSERV_SHA256=5c562c3ea1032065ef43d6075e5722f94ce6a7a780d6a2b4c6d54c1ce3921965
 
 RUN apk add --no-cache \
     build-base \
@@ -20,7 +21,8 @@ RUN apk add --no-cache \
 
 WORKDIR /tmp
 
-RUN curl -LO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
+RUN curl -fLO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
+    echo "${OCSERV_SHA256}  ocserv-${OCSERV_VERSION}.tar.xz" | sha256sum -c - && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
     cd ocserv-${OCSERV_VERSION} && \
     ./configure --prefix=/usr --sysconfdir=/etc && \
@@ -54,12 +56,18 @@ RUN apk add --no-cache \
     shadow \
  && update-ca-certificates
 
-# Install acme.sh (no cron, no profile)
+# Install acme.sh from a pinned release (no cron, no profile).
+# To update: bump ACME_VERSION and put the sha256 of the new acme.sh into ACME_SHA256.
+# get-cert.sh fetches DNS plugins from the same release tag (ACME_VERSION), never from master.
+ARG ACME_VERSION=3.1.6
+ARG ACME_SHA256=c7d68b021cfd6380ea83a82962abde5b484779fee0b97d38681dfa1396bbc8d7
+ENV ACME_VERSION=${ACME_VERSION}
 RUN set -eux; \
     ACME_INSTALL=/usr/local/share; \
     ACME_CONFIG=/etc/acme; \
     mkdir -p "$ACME_INSTALL" "$ACME_CONFIG"; \
-    curl -fsSLo /tmp/acme.sh https://raw.githubusercontent.com/acmesh-official/acme.sh/master/acme.sh; \
+    curl -fsSLo /tmp/acme.sh "https://raw.githubusercontent.com/acmesh-official/acme.sh/${ACME_VERSION}/acme.sh"; \
+    echo "${ACME_SHA256}  /tmp/acme.sh" | sha256sum -c -; \
     chmod +x /tmp/acme.sh; \
     cd /tmp; \
     ./acme.sh --install --home "$ACME_INSTALL" --config-home "$ACME_CONFIG" --nocron --noprofile; \

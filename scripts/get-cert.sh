@@ -13,6 +13,7 @@ set -e
 # External env:
 #   ACME_ACCOUNT_EMAIL=you@example.com
 #   ACME_SERVER=letsencrypt   # or zerossl, buypass, ...
+#   ACME_DNS_SHA256=<sha256>  # optional: pin the DNS plugin file (dns mode)
 #
 # Internal defaults (do not expose via compose):
 #   ACME_HOME=/etc/acme
@@ -102,14 +103,27 @@ case "$MODE" in
       if [ ! -f "$_plugin_path" ]; then
         echo "[INFO] DNS API plugin $ACME_DNS not found at $_plugin_path, downloading..."
         mkdir -p "$DNSAPI_DIR"
-        _plugin_url="https://raw.githubusercontent.com/acmesh-official/acme.sh/master/dnsapi/$_plugin_file"
-        if curl -fsSLo "$_plugin_path" "$_plugin_url"; then
-          chmod +x "$_plugin_path"
-          echo "[INFO] Downloaded DNS API plugin from $_plugin_url"
-        else
+        # Same release as the acme.sh in the image (ACME_VERSION), not master.
+        _plugin_url="https://raw.githubusercontent.com/acmesh-official/acme.sh/${ACME_VERSION:?ACME_VERSION is not set}/dnsapi/$_plugin_file"
+        if ! curl -fsSLo "$_plugin_path.tmp" "$_plugin_url"; then
+          rm -f "$_plugin_path.tmp"
           echo "[ERR] Failed to download DNS API plugin from $_plugin_url"
           exit 5
         fi
+        # Optional: ACME_DNS_SHA256 pins the exact plugin file (provider.env or compose environment)
+        if [ -n "${ACME_DNS_SHA256:-}" ]; then
+          if ! echo "$ACME_DNS_SHA256  $_plugin_path.tmp" | sha256sum -c - >/dev/null 2>&1; then
+            rm -f "$_plugin_path.tmp"
+            echo "[ERR] $_plugin_file sha256 does not match ACME_DNS_SHA256; not using it"
+            exit 6
+          fi
+          echo "[INFO] $_plugin_file sha256 verified"
+        else
+          echo "[WARN] ACME_DNS_SHA256 not set; plugin is not checksum-verified"
+        fi
+        mv "$_plugin_path.tmp" "$_plugin_path"
+        chmod +x "$_plugin_path"
+        echo "[INFO] Downloaded DNS API plugin $ACME_DNS ($ACME_VERSION) from $_plugin_url"
       fi
     fi
     echo "[INFO] Issuing via DNS-01 using plugin: $ACME_DNS for $DOMAIN"
