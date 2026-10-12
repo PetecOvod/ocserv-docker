@@ -23,7 +23,8 @@ WORKDIR /tmp
 
 # Optional features (PAM, RADIUS, GSSAPI, OTP, GeoIP, ...) are disabled
 # explicitly, so the build does not change with whatever -dev packages happen
-# to be installed.
+# to be installed. ocserv-fw (restrict-user-to-routes/ports) uses iptables,
+# which the image ships; the upstream default is nftables.
 RUN curl -fLO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
     echo "${OCSERV_SHA256}  ocserv-${OCSERV_VERSION}.tar.xz" | sha256sum -c - && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
@@ -33,7 +34,7 @@ RUN curl -fLO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}
       -Dpam=disabled -Dradius=disabled -Dgssapi=disabled -Dliboath=disabled \
       -Dlibnl=disabled -Dmaxmind=disabled -Dgeoip=disabled -Dlz4=disabled \
       -Dsystemd=disabled -Dutmp=disabled -Dlibwrap=disabled \
-      -Dseccomp=enabled -Dpager= && \
+      -Dseccomp=enabled -Dpager= -Dfirewall-script=iptables && \
     meson compile -C build && \
     DESTDIR=/tmp/build-output meson install -C build --no-rebuild
 
