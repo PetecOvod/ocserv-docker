@@ -5,7 +5,7 @@ A production-ready Docker build for OpenConnect VPN Server (`ocserv`) with certi
 ---
 
 ## ✅ Features
-- Builds **ocserv 1.3.0** from source
+- Builds **ocserv 1.5.0** from source (meson), on a pinned Alpine base
 - Self-signed certificates on first start (via `certtool`)
 - Public certificates via **acme.sh** (HTTP-01 or DNS-01)
 - No `--privileged` (uses only `NET_ADMIN`, and `/dev/net/tun`)
