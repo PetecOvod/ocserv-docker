@@ -96,7 +96,7 @@ cap_add:
 ```yaml
 services:
   ocserv:
-    image: docker.io/petecovod/ocserv:latest
+    image: docker.io/petecovod/ocserv:0.3
     container_name: ocserv
     ports:
       - "43443:443/tcp"
