@@ -535,15 +535,15 @@ route = default
 # Note the that following two firewalling options currently are available
 # in Linux systems with iptables software. 
 
-# If set, the script /usr/bin/ocserv-fw will be called to restrict
+# If set, the script /usr/libexec/ocserv-fw will be called to restrict
 # the user to its allowed routes and prevent him from accessing
 # any other routes. In case of defaultroute, the no-routes are restricted.
-# All the routes applied by ocserv can be reverted using /usr/bin/ocserv-fw
+# All the routes applied by ocserv can be reverted using /usr/libexec/ocserv-fw
 # --removeall. This option can be set globally or in the per-user configuration.
 #restrict-user-to-routes = true
 
 # This option implies restrict-user-to-routes set to true. If set, the
-# script /usr/bin/ocserv-fw will be called to restrict the user to
+# script /usr/libexec/ocserv-fw will be called to restrict the user to
 # access specific ports in the network. This option can be set globally
 # or in the per-user configuration.
 #restrict-user-to-ports = "tcp(443), tcp(80), udp(443), sctp(99), tcp(583), icmp(), icmpv6()"
