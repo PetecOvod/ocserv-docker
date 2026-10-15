@@ -1,0 +1,108 @@
+name: Image scan
+
+# Weekly Trivy scan of the published image. Fixable HIGH/CRITICAL findings
+# open (or refresh) a single issue; a clean scan closes it. Runs outside the
+# default branch (a pull request that changes this file, a manual run on a
+# branch) only scan, without touching issues.
+on:
+  schedule:
+    - cron: "23 4 * * 1" # Mondays, 04:23 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/image-scan.yml
+
+permissions:
+  contents: read
+
+# Every run that may touch the issue shares one group, so two of them never
+# race on it; pull requests only scan and get their own group.
+concurrency:
+  group: image-scan-${{ github.event_name == 'pull_request' && github.ref || 'issue' }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: docker.io/petecovod/ocserv:latest
+  ISSUE_TITLE: "Published image has fixable HIGH/CRITICAL vulnerabilities"
+  # Same pinned Trivy as ci.yml.
+  TRIVY_VERSION: "0.75.0"
+  TRIVY_SHA256: "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f"
+
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSLo trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tar.gz" | sha256sum -c -
+          tar -xzf trivy.tar.gz trivy
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Trivy exits with 2 on findings; any other non-zero code is an error
+      # and fails the job.
+      - name: Scan every platform
+        id: scan
+        run: |
+          set -euo pipefail
+          digest=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' | jq -r .digest)
+          found=0
+          report="$RUNNER_TEMP/report.md"
+          : > "$report"
+          for platform in linux/amd64 linux/arm64 linux/arm/v7; do
+            rc=0
+            trivy image --image-src remote --platform "$platform" \
+              --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL \
+              --exit-code 2 --format table --output "$RUNNER_TEMP/out.txt" \
+              "$IMAGE@$digest" || rc=$?
+            case "$rc" in
+              0) ;;
+              2) found=1 ;;
+              *) exit "$rc" ;;
+            esac
+            { echo "### $platform"; echo '```'; cat "$RUNNER_TEMP/out.txt"; echo '```'; } >> "$report"
+          done
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Open, refresh or close the issue
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DIGEST: ${{ steps.scan.outputs.digest }}
+          FOUND: ${{ steps.scan.outputs.found }}
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          today=$(date -u +%F)
+          # Only issues opened by this workflow count, so an issue anyone else
+          # opens with the same title is never edited or closed.
+          number=$(gh issue list --state open --author app/github-actions --limit 200 --json number,title \
+            --jq 'map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty')
+          if [ "$FOUND" = 1 ]; then
+            body="$RUNNER_TEMP/body.md"
+            {
+              echo "The scan of \`$IMAGE\` (\`$DIGEST\`) on $today found fixable HIGH/CRITICAL vulnerabilities."
+              echo "Rebuild and release a patch version. Run: $run_url"
+              echo
+              cat "$RUNNER_TEMP/report.md"
+            } > "$body"
+            # GitHub limits an issue body to 65536 characters.
+            truncate -s '<60000' "$body"
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --body-file "$body"
+              gh issue comment "$number" --body "Still present on $today: $run_url"
+            else
+              gh issue create --title "$ISSUE_TITLE" --body-file "$body"
+            fi
+          elif [ -n "$number" ]; then
+            gh issue close "$number" --comment "No fixable HIGH/CRITICAL vulnerabilities on $today (\`$DIGEST\`): $run_url"
+          fi
