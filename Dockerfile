@@ -28,7 +28,8 @@ WORKDIR /tmp
 # always the bundled copies (the runtime stage ships no shared ones).
 # ocserv-fw (restrict-user-to-routes/ports) uses iptables, which the image
 # ships; the upstream default is nftables.
-RUN curl -fLO https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
+# Retries cover dropped connections to the download servers.
+RUN curl -fLO --retry 5 --retry-all-errors https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
     echo "${OCSERV_SHA256}  ocserv-${OCSERV_VERSION}.tar.xz" | sha256sum -c - && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
     cd ocserv-${OCSERV_VERSION} && \
@@ -84,7 +85,7 @@ RUN set -eux; \
     ACME_INSTALL=/usr/local/share; \
     ACME_CONFIG=/etc/acme; \
     mkdir -p "$ACME_INSTALL" "$ACME_CONFIG"; \
-    curl -fsSLo /tmp/acme.sh "https://raw.githubusercontent.com/acmesh-official/acme.sh/${ACME_VERSION}/acme.sh"; \
+    curl -fsSLo /tmp/acme.sh --retry 5 --retry-all-errors "https://raw.githubusercontent.com/acmesh-official/acme.sh/${ACME_VERSION}/acme.sh"; \
     echo "${ACME_SHA256}  /tmp/acme.sh" | sha256sum -c -; \
     chmod +x /tmp/acme.sh; \
     cd /tmp; \
