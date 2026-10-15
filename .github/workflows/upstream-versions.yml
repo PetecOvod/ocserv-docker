@@ -1,0 +1,94 @@
+name: Upstream versions
+
+# Weekly check for new ocserv and acme.sh releases, which are pinned in the
+# Dockerfile and not visible to Dependabot. A newer release opens an issue
+# named after it; once the Dockerfile catches up (or a later release
+# supersedes it), the issue is closed. Runs outside the default branch (a
+# pull request that changes this file, a manual run on a branch) only report
+# what they would do.
+on:
+  schedule:
+    - cron: "37 4 * * 1" # Mondays, 04:37 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/upstream-versions.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-versions-${{ github.event_name == 'pull_request' && github.ref || 'issue' }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Compare with the latest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+
+          write() {
+            if [ "$DRY_RUN" = true ]; then echo "would run: gh $*"; else gh "$@"; fi
+          }
+
+          # Only issues opened by this workflow count. Closed ones are kept in
+          # view so that a release that was declined is not raised again.
+          issues=$(gh issue list --state all --author app/github-actions --limit 500 --json number,title,state)
+
+          # check NAME PINNED LATEST NOTES_URL HOWTO
+          check() {
+            local name=$1 pinned=$2 latest=$3 notes=$4 howto=$5
+            local prefix="New upstream release: $name "
+            local title="" n
+            if [ -z "$pinned" ] || [ -z "$latest" ]; then
+              echo "::error::$name: could not read versions (pinned '$pinned', latest '$latest')"
+              exit 1
+            fi
+            echo "$name: pinned $pinned, latest $latest"
+            if [ "$pinned" != "$latest" ] &&
+               [ "$(printf '%s\n' "$pinned" "$latest" | sort -V | tail -n 1)" = "$latest" ]; then
+              title="$prefix$latest"
+            fi
+            # Close issues for releases that are pinned now or superseded.
+            for n in $(jq -r --arg p "$prefix" --arg t "$title" \
+                '.[] | select(.state == "OPEN" and (.title | startswith($p)) and .title != $t) | .number' <<< "$issues"); do
+              write issue close "$n" --comment "The Dockerfile pins $name $pinned; the latest release is $latest."
+            done
+            if [ -n "$title" ] &&
+               [ -z "$(jq -r --arg t "$title" '.[] | select(.title == $t) | .number' <<< "$issues")" ]; then
+              write issue create --title "$title" --body "$name $latest is out; the Dockerfile pins $pinned.
+
+          Release notes: $notes
+
+          $howto"
+            fi
+          }
+
+          ocserv_pinned=$(sed -n 's/^ENV OCSERV_VERSION=//p' Dockerfile)
+          ocserv_latest=$(curl -fsSL --max-time 60 https://www.infradead.org/ocserv/download/ |
+            grep -oE 'ocserv-[0-9]+\.[0-9]+\.[0-9]+\.tar\.xz' |
+            sed 's/^ocserv-//; s/\.tar\.xz$//' | sort -uV | tail -n 1)
+          acme_pinned=$(sed -n 's/^ARG ACME_VERSION=//p' Dockerfile)
+          acme_latest=$(gh api repos/acmesh-official/acme.sh/releases/latest --jq .tag_name)
+
+          check ocserv "$ocserv_pinned" "$ocserv_latest" \
+            "https://gitlab.com/openconnect/ocserv/-/blob/master/NEWS" \
+            "Bump OCSERV_VERSION and OCSERV_SHA256 in the Dockerfile (check the tarball's .sig against the maintainer's GPG key)."
+          check acme.sh "$acme_pinned" "$acme_latest" \
+            "https://github.com/acmesh-official/acme.sh/releases/tag/$acme_latest" \
+            "Bump ACME_VERSION and ACME_SHA256 in the Dockerfile."

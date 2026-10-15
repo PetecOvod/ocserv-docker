@@ -1,0 +1,33 @@
+# Alpine (tag and digest in the Dockerfile) and the actions in workflows.
+# ocserv and acme.sh are not visible to Dependabot; upstream-versions.yml
+# watches them.
+version: 2
+updates:
+  # No cooldown here: a new Alpine digest usually carries security fixes.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Moscow
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Moscow
+    # A fresh release waits a week: hijacked action releases are usually
+    # caught and pulled within days.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci
