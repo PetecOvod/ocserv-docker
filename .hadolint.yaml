@@ -1,0 +1,9 @@
+ignored:
+  # Alpine packages are not pinned: the runtime stage runs `apk upgrade`
+  # to pick up security fixes, and the base image is pinned by digest.
+  - DL3018
+  # `cd` into the unpacked source tree inside a single RUN is intended.
+  - DL3003
+  # The only pipes are `echo "<sha256>  <file>" | sha256sum -c -`,
+  # where the last command is the one whose status matters.
+  - DL4006

@@ -74,6 +74,8 @@ cidr_network_mask() {
   neti=$(( ipi & mi ))
   echo "$(int2ip "$neti") $mask"
 }
+# Word splitting is intended: the function prints "<network> <netmask>".
+# shellcheck disable=SC2046
 set -- $(cidr_network_mask "$VPN_SUBNET")
 IPV4_NETWORK="$1"; IPV4_NETMASK="$2"
 export IPV4_NETWORK IPV4_NETMASK

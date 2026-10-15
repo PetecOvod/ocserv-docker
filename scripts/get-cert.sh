@@ -86,6 +86,7 @@ case "$MODE" in
     if [ -f "$PROVIDER_ENV" ]; then
       # Auto-export all variables from provider.env so acme.sh and dnsapi see them
       set -a
+      # shellcheck source=/dev/null
       . "$PROVIDER_ENV"
       set +a
     fi
