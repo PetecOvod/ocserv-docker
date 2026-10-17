@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test for the image: start ocserv, log in with a password and with a
-# client certificate, pass traffic through the tunnel, stop ocserv and check
+# client certificate, pass traffic through the tunnel, reload a new server
+# certificate without dropping the session, stop ocserv and check
 # that its iptables rules are gone.
 #
 # Usage: tests/smoke.sh [image]        (default image: ocserv:ci)
@@ -116,6 +117,28 @@ for target in https://example.com/ https://www.google.com/generate_204 https://c
   case "$code" in 2??) break ;; esac
 done
 case "$code" in 2??) ;; *) fail "no internet through the tunnel (last HTTP code '$code')" ;; esac
+
+log "certificate reload keeps the session"
+served_pin() {
+  echo | timeout 10 openssl s_client -connect 127.0.0.1:443 2>/dev/null \
+    | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+    | openssl dgst -sha256 -binary | base64
+}
+docker exec "$NAME" sh -c 'cd /etc/ocserv/cert &&
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 \
+    -subj /CN=vpn.example.test -keyout new-key.pem -out new-cert.pem 2>/dev/null &&
+  mv new-key.pem server-key.pem && mv new-cert.pem server-cert.pem && occtl reload' >/dev/null \
+  || fail "could not replace the certificate"
+NEW_PIN="pin-sha256:$(docker exec "$NAME" cat /etc/ocserv/cert/server-cert.pem \
+  | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary | base64)"
+for _ in $(seq 10); do [ "pin-sha256:$(served_pin)" = "$NEW_PIN" ] && break; sleep 1; done
+[ "pin-sha256:$(served_pin)" = "$NEW_PIN" ] || fail "ocserv still serves the old certificate after reload"
+kill -0 "$OC_PID" 2>/dev/null || fail "the session was dropped by the reload"
+[ "$(curl -s -m 5 --socks5 "127.0.0.1:$SOCKS_PORT" "http://$HOST_IP:$HTTP_PORT/token")" = "$TOKEN" ] \
+  || fail "no traffic through the tunnel after the reload"
+PIN="$NEW_PIN"
+OC=(openconnect --non-inter --servercert "$PIN")
 stop_client
 
 log "certificate login, traffic through the tunnel"

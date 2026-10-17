@@ -15,6 +15,12 @@ set -e
 #   ACME_SERVER=letsencrypt   # or zerossl, buypass, ...
 #   ACME_DNS_SHA256=<sha256>  # optional: pin the DNS plugin file (dns mode)
 #
+# After a new certificate is installed, a running ocserv is told to reload it
+# (occtl reload): connected users stay connected, new connections get the new
+# certificate. No container restart is needed.
+#
+# Exit codes: 0 = issued or not due yet (both fine), anything else = failure.
+#
 # Internal defaults (do not expose via compose):
 #   ACME_HOME=/etc/acme
 #   HTTP_PORT=80
@@ -22,6 +28,14 @@ set -e
 
 MODE="$1"
 [ -z "$MODE" ] && { echo "Usage: $0 <http|dns>"; exit 1; }
+
+# Keys and acme.sh state are private; also keeps the check below from
+# rejecting files this script creates itself.
+umask 077
+
+# One run at a time (a scheduled run and a manual one must not interleave).
+exec 9>/run/get-cert.lock
+flock -n 9 || { echo "[ERR] Another get-cert.sh run is in progress"; exit 9; }
 
 # --- defaults ---
 ACME_HOME="/etc/acme"
@@ -54,6 +68,17 @@ _lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 EFLAG=""; [ "$(_lower "$ECC")" = "true" ] && EFLAG="--ecc"
 SFLAG=""; [ "$(_lower "$STAGING")" = "true" ] && SFLAG="--staging"
 
+# acme.sh and this script run files from $ACME_HOME as shell code, as root
+# (account.conf, the domain configs, provider.env). Whoever can edit them
+# runs code here, so none of them may be writable by group or others, and
+# none may be a symlink (its target could be anywhere).
+_unsafe="$(find "$ACME_HOME" \( -type l -o -perm -020 -o -perm -002 \) 2>/dev/null)"
+if [ -n "$_unsafe" ]; then
+  echo "[ERR] Symlink, or writable by group or others (fix with: chmod -R go-w $ACME_HOME):"
+  echo "$_unsafe" | sed 's/^/      /'
+  exit 7
+fi
+
 echo "[INFO] DOMAIN=$DOMAIN  SERVER=$SERVER  ECC=$ECC  STAGING=$STAGING  ACME_HOME=$ACME_HOME"
 
 # --- register / update account ---
@@ -67,7 +92,7 @@ if [ ! -f "$ACME_HOME/account.conf" ]; then
   fi
 else
   if [ -n "${ACME_ACCOUNT_EMAIL:-}" ]; then
-    CURRENT_EMAIL="$(. "$ACME_HOME/account.conf"; echo "${ACCOUNT_EMAIL:-}")"
+    CURRENT_EMAIL="$(sed -n "s/^ACCOUNT_EMAIL='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$ACME_HOME/account.conf" | tail -n 1)"
     if [ "$CURRENT_EMAIL" != "$ACME_ACCOUNT_EMAIL" ]; then
       echo "[INFO] Updating ACME account email: '$CURRENT_EMAIL' -> '$ACME_ACCOUNT_EMAIL'"
       "$ACME_BIN" --home "$ACME_HOME" --update-account --server "$SERVER" -m "$ACME_ACCOUNT_EMAIL"
@@ -75,11 +100,14 @@ else
   fi
 fi
 
+# acme.sh --issue exits with 2 when the certificate is not due for renewal
+# yet; that is not an error, and the install step below still runs.
+ISSUE_RC=0
 case "$MODE" in
   http)
     echo "[INFO] Issuing via HTTP-01 (standalone) on port $HTTP_PORT for $DOMAIN"
     "$ACME_BIN" --home "$ACME_HOME" --server "$SERVER" \
-      --issue --standalone --httpport "$HTTP_PORT" -d "$DOMAIN" $EFLAG $SFLAG
+      --issue --standalone --httpport "$HTTP_PORT" -d "$DOMAIN" $EFLAG $SFLAG || ISSUE_RC=$?
     ;;
   dns)
     PROVIDER_ENV="$ACME_HOME/provider.env"
@@ -97,10 +125,29 @@ case "$MODE" in
       echo "        CF_Token=..."
       exit 3
     fi
+    # ACME_DNS becomes a file name: allow only acme.sh plugin names.
+    case "$ACME_DNS" in
+      *[!a-z0-9_]*|dns_) _dns_ok=false ;;
+      dns_*) _dns_ok=true ;;
+      *) _dns_ok=false ;;
+    esac
+    if [ "$_dns_ok" != true ]; then
+      echo "[ERR] ACME_DNS='$ACME_DNS' is not a DNS plugin name (expected dns_<provider>)"
+      exit 3
+    fi
     # Ensure required dnsapi hook script exists for selected ACME_DNS provider
     if [ -n "${ACME_DNS:-}" ]; then
       _plugin_file="${ACME_DNS}.sh"
       _plugin_path="$DNSAPI_DIR/$_plugin_file"
+      # A plugin already in the volume is checked on every run, not only
+      # when it is downloaded: it runs with the DNS API token.
+      if [ -f "$_plugin_path" ] && [ -n "${ACME_DNS_SHA256:-}" ]; then
+        if ! echo "$ACME_DNS_SHA256  $_plugin_path" | sha256sum -c - >/dev/null 2>&1; then
+          echo "[ERR] $_plugin_path sha256 does not match ACME_DNS_SHA256; delete it to download it again"
+          exit 6
+        fi
+        echo "[INFO] $_plugin_file sha256 verified"
+      fi
       if [ ! -f "$_plugin_path" ]; then
         echo "[INFO] DNS API plugin $ACME_DNS not found at $_plugin_path, downloading..."
         mkdir -p "$DNSAPI_DIR"
@@ -129,16 +176,79 @@ case "$MODE" in
     fi
     echo "[INFO] Issuing via DNS-01 using plugin: $ACME_DNS for $DOMAIN"
     "$ACME_BIN" --home "$ACME_HOME" --server "$SERVER" \
-      --issue --dns "$ACME_DNS" -d "$DOMAIN" $EFLAG $SFLAG
+      --issue --dns "$ACME_DNS" -d "$DOMAIN" $EFLAG $SFLAG || ISSUE_RC=$?
     ;;
   *)
     echo "[ERR] Unknown mode: $MODE"; exit 4;;
 esac
 
-echo "[INFO] Installing certs to /etc/ocserv/cert"
+case "$ISSUE_RC" in
+  0) echo "[INFO] Certificate issued" ;;
+  2) echo "[INFO] Certificate is not due for renewal yet" ;;
+  *) echo "[ERR] acme.sh --issue failed (exit $ISSUE_RC)"; exit "$ISSUE_RC" ;;
+esac
+
+# --- install: stage, check, swap, reload ---
+# The certificate goes to a staging directory first and replaces the live
+# files only if it is valid, its key matches, and it differs from them.
+CERT_DIR=/etc/ocserv/cert
+STAGE="$CERT_DIR/.staging"
+rm -rf "$STAGE"
+mkdir -m 700 "$STAGE"
 "$ACME_BIN" --home "$ACME_HOME" --install-cert -d "$DOMAIN" \
-  --key-file       /etc/ocserv/cert/server-key.pem \
-  --fullchain-file /etc/ocserv/cert/server-cert.pem \
+  --key-file       "$STAGE/server-key.pem" \
+  --fullchain-file "$STAGE/server-cert.pem" \
   $EFLAG
 
-echo "[INFO] Done. Restart container: docker restart ocserv"
+_pub_of_cert() { openssl x509 -in "$1" -noout -pubkey | openssl sha256; }
+_pub_of_key()  { openssl pkey -in "$1" -pubout | openssl sha256; }
+if ! openssl x509 -in "$STAGE/server-cert.pem" -noout -checkend 0 >/dev/null 2>&1; then
+  echo "[ERR] New certificate is invalid or expired; live certificate left as is"
+  rm -rf "$STAGE"; exit 8
+fi
+if [ "$(_pub_of_cert "$STAGE/server-cert.pem")" != "$(_pub_of_key "$STAGE/server-key.pem")" ]; then
+  echo "[ERR] New key does not match the new certificate; live certificate left as is"
+  rm -rf "$STAGE"; exit 8
+fi
+
+# Set while a new certificate is installed but not yet loaded by ocserv, so
+# that a failed reload is retried on the next run.
+PENDING="$CERT_DIR/.reload-pending"
+
+_reload() {
+  if occtl reload >/dev/null 2>&1; then
+    echo "[INFO] ocserv reloaded the certificate"
+  elif [ -s /run/ocserv.pid ] && kill -HUP "$(cat /run/ocserv.pid)" 2>/dev/null; then
+    echo "[INFO] ocserv reloaded the certificate (SIGHUP)"
+  elif pgrep ocserv >/dev/null 2>&1; then
+    echo "[ERR] ocserv is running but did not accept the reload; it will be retried on the next run"
+    exit 10
+  else
+    echo "[INFO] ocserv is not running; it will use the new certificate when it starts"
+  fi
+  rm -f "$PENDING"
+}
+
+if cmp -s "$STAGE/server-cert.pem" "$CERT_DIR/server-cert.pem" &&
+   cmp -s "$STAGE/server-key.pem" "$CERT_DIR/server-key.pem"; then
+  rm -rf "$STAGE"
+  if [ -f "$PENDING" ]; then
+    echo "[INFO] Installed certificate is current, but its reload is still pending"
+    _reload
+  else
+    echo "[INFO] Installed certificate is already current; nothing to reload"
+  fi
+  exit 0
+fi
+
+chmod 600 "$STAGE/server-key.pem"
+chmod 644 "$STAGE/server-cert.pem"
+: > "$PENDING"
+mv -f "$STAGE/server-key.pem" "$CERT_DIR/server-key.pem"
+mv -f "$STAGE/server-cert.pem" "$CERT_DIR/server-cert.pem"
+rm -rf "$STAGE"
+echo "[INFO] Installed the new certificate to $CERT_DIR"
+
+# ocserv reloads its certificate and key on "occtl reload" (or SIGHUP to
+# the main process); sessions in progress are not interrupted.
+_reload
