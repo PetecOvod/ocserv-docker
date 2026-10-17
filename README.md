@@ -228,7 +228,6 @@ Requirements:
 Issue (`ocs cert issue http` is equivalent):
 ```bash
 docker exec -it ocserv ocs cert issue http
-docker restart ocserv
 ```
 
 ### DNS-01 (no port 80)
@@ -245,35 +244,40 @@ CF_Account_ID=YOUR_CF_ACCOUNT_ID
 2) Issue (`ocs cert issue dns` is equivalent):
 ```bash
 docker exec -it ocserv ocs cert issue dns
-docker restart ocserv
 ```
 
 The DNS plugin is downloaded on first use from the same acme.sh release as the one
 in the image (`ACME_VERSION`), not from `master`. To pin the exact file, put its
 sha256 into `ACME_DNS_SHA256` (in `provider.env` or the compose `environment`):
-a mismatch stops the script. A plugin mounted read-only as
-`/usr/local/share/dnsapi/<name>.sh` is used as is, without download.
+a mismatch stops the script. The hash is checked on every run, also for a plugin
+that is already there, for example one mounted read-only as
+`/usr/local/share/dnsapi/<name>.sh`.
 
 Provider secrets are saved by acme.sh into `/etc/acme/account.conf` (the
 `./acme` volume), so they persist and are reused automatically on renewal.
+Files in `/etc/acme` are run as shell code, so the script refuses to work if any
+of them is writable by group or others.
+
+A new certificate is checked (valid, matches its key) and then loaded by the
+running ocserv in place (`occtl reload`): connected users stay connected, and
+no container restart is needed.
 
 ### Auto-renewal
 
 `get-cert.sh` is safe to run on a schedule: `acme.sh` skips when the cert is not
 yet due (no CA request, no DNS challenge) and only reissues within the renewal
-window (~30 days before expiry). Schedule the same two commands (e.g. every two
-weeks) with any host scheduler (cron, systemd timer, Synology Task Scheduler),
-**without the `-it` flags**:
+window (~30 days before expiry). A skipped renewal exits with code 0. Schedule
+it (e.g. every two weeks) with any host scheduler (cron, systemd timer, Synology
+Task Scheduler), **without the `-it` flags**:
 
 ```bash
 docker exec ocserv /scripts/get-cert.sh dns   # or: http
-docker restart ocserv
 ```
 
 Example crontab entry (every two weeks):
 
 ```cron
-0 4 1,15 * * docker exec ocserv /scripts/get-cert.sh dns && docker restart ocserv
+0 4 1,15 * * docker exec ocserv /scripts/get-cert.sh dns
 ```
 
 ---
