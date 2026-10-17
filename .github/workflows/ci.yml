@@ -59,7 +59,7 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck --shell=busybox --severity=warning scripts/*
-          shellcheck tests/*.sh
+          shellcheck tests/*.sh tests/acme/*.sh
 
       - name: hadolint
         run: hadolint Dockerfile
@@ -117,6 +117,12 @@ jobs:
 
       - name: Smoke test
         run: tests/smoke.sh ocserv:ci
+
+      # Certificate issue and renewal through get-cert.sh, against Pebble.
+      - name: ACME test
+        if: matrix.platform == 'linux/amd64'
+        timeout-minutes: 10
+        run: tests/acme.sh ocserv:ci
 
   # armv7 has no native runner; make sure it still builds (under QEMU).
   build-armv7:
