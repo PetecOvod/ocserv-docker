@@ -10,6 +10,8 @@
 # The container uses host networking and port 443 and adds NAT rules on the
 # host; run it on a CI runner or a throwaway VM.
 set -euo pipefail
+# Under pipefail, "cmd | grep -q" fails when grep exits early and cmd gets
+# SIGPIPE on a later write; read the whole output (grep >/dev/null) instead.
 
 IMAGE="${1:-ocserv:ci}"
 NAME="ocserv-smoke"
@@ -68,11 +70,11 @@ docker run -d --name "$NAME" --network host \
   "$IMAGE" >/dev/null
 
 for _ in $(seq 60); do
-  docker logs "$NAME" 2>&1 | grep -q "initialized OpenConnect VPN Server" && break
+  docker logs "$NAME" 2>&1 | grep "initialized OpenConnect VPN Server" >/dev/null && break
   docker inspect -f '{{.State.Running}}' "$NAME" | grep -q true || fail "container exited"
   sleep 1
 done
-docker logs "$NAME" 2>&1 | grep -q "initialized OpenConnect VPN Server" || fail "ocserv did not start in 60 s"
+docker logs "$NAME" 2>&1 | grep "initialized OpenConnect VPN Server" >/dev/null || fail "ocserv did not start in 60 s"
 log "ocserv started: $(docker exec "$NAME" ocserv --version 2>&1 | grep -m1 "OpenConnect")"
 
 log "generated server certificate names the server in subjectAltName"
@@ -112,7 +114,7 @@ fi
 log "password login, traffic through the tunnel"
 echo "$USER_PASS" > "$WORK/pass"
 tunnel_check "password" "$WORK/pass" --passwd-on-stdin -u "$USER_NAME"
-docker exec "$NAME" occtl show users | grep -qw "$USER_NAME" || fail "occtl does not list the password session"
+docker exec "$NAME" occtl show users | grep -w "$USER_NAME" >/dev/null || fail "occtl does not list the password session"
 
 log "internet through the tunnel (NAT)"
 code=""
@@ -150,7 +152,7 @@ docker exec "$NAME" ocs client issue smoke-cert >/dev/null 2>&1 || fail "ocs cli
 docker cp -q "$NAME:/etc/ocserv/auth/clients/smoke-cert-cert.pem" "$WORK/cert.pem"
 docker cp -q "$NAME:/etc/ocserv/auth/clients/smoke-cert-key.pem" "$WORK/key.pem"
 tunnel_check "certificate" /dev/null -c "$WORK/cert.pem" -k "$WORK/key.pem"
-docker exec "$NAME" occtl show users | grep -qw "smoke-cert" || fail "occtl does not list the certificate session"
+docker exec "$NAME" occtl show users | grep -w "smoke-cert" >/dev/null || fail "occtl does not list the certificate session"
 stop_client
 
 log "reissued client certificate: a matching new pair that logs in"
@@ -166,7 +168,8 @@ stop_client
 log "ocs matches user names literally"
 docker exec "$NAME" sh -c "printf 'axb:*:x\n' >> /etc/ocserv/auth/passwd"
 if docker exec "$NAME" ocs user del a.b >/dev/null 2>&1; then fail "'ocs user del a.b' acted on user 'axb'"; fi
-docker exec "$NAME" ocs user list | grep -qw axb || fail "user 'axb' is gone"
+users="$(docker exec "$NAME" ocs user list)"
+echo "$users" | grep -qw axb || fail "user 'axb' is gone"
 for bad in ../x -x .hidden; do
   if docker exec "$NAME" sh /scripts/make-client.sh "$bad" >/dev/null 2>&1; then
     fail "make-client.sh accepted the name '$bad'"
@@ -181,7 +184,7 @@ if timeout 30 "${OC[@]}" -c "$WORK/foreign-cert.pem" -k "$WORK/foreign-key.pem" 
   fail "login with a certificate from another CA succeeded"
 fi
 
-docker exec "$NAME" occtl show status | grep -q "Status: online" || fail "occtl status is not online"
+docker exec "$NAME" occtl show status | grep "Status: online" >/dev/null || fail "occtl status is not online"
 
 log "stop: iptables rules are removed"
 docker stop -t 15 "$NAME" >/dev/null
