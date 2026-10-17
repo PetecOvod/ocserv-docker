@@ -75,6 +75,10 @@ done
 docker logs "$NAME" 2>&1 | grep -q "initialized OpenConnect VPN Server" || fail "ocserv did not start in 60 s"
 log "ocserv started: $(docker exec "$NAME" ocserv --version 2>&1 | grep -m1 "OpenConnect")"
 
+log "generated server certificate names the server in subjectAltName"
+docker exec "$NAME" openssl x509 -in /etc/ocserv/cert/server-cert.pem -noout -ext subjectAltName \
+  | grep -q "DNS:vpn.example.test" || fail "no subjectAltName DNS:vpn.example.test in the server certificate"
+
 docker exec "$NAME" sh -c "printf '%s:*:%s\n' '$USER_NAME' \"\$(openssl passwd -6 '$USER_PASS')\" >> /etc/ocserv/auth/passwd"
 
 PIN="pin-sha256:$(docker exec "$NAME" cat /etc/ocserv/cert/server-cert.pem \
@@ -163,5 +167,17 @@ log "stop: iptables rules are removed"
 docker stop -t 15 "$NAME" >/dev/null
 rules="$( { as_root iptables-save 2>/dev/null; as_root iptables-legacy-save 2>/dev/null; } | grep -c OCSERV || true)"
 [ "$rules" = "0" ] || fail "$rules OCSERV iptables rules left after stop"
+
+log "a server key that does not match the certificate stops the start"
+mkdir "$WORK/pair"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj /CN=a \
+  -keyout "$WORK/pair/server-key.pem" -out "$WORK/pair/server-cert.pem" >/dev/null 2>&1
+openssl ecparam -name prime256v1 -genkey -noout -out "$WORK/pair/server-key.pem"
+chmod 644 "$WORK/pair/server-key.pem"
+if timeout 60 docker run --rm -v "$WORK/pair:/etc/ocserv/cert" \
+     -e SRV_CN=vpn.example.test -e SRV_CA="Smoke Test CA" "$IMAGE" >"$WORK/pair.log" 2>&1; then
+  fail "the container started with a mismatched server key"
+fi
+grep -q "does not match" "$WORK/pair.log" || { cat "$WORK/pair.log" >&2; fail "no clear error for a mismatched server key"; }
 
 log "OK"

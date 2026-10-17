@@ -10,11 +10,23 @@ yarn.lock
 # Python
 __pycache__
 
-# Local volumes & runtime artifacts
+# Local volumes & runtime artifacts (keys and certificates must never reach
+# the build context)
 acme/
 auth/
+cert/
+config/
+secrets/
 logs/
 *.log
+**/.env
+**/.env.*
+**/*.env
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.crt
 
 # OS files
 .DS_Store
