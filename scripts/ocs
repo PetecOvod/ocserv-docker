@@ -37,21 +37,24 @@ die()  { printf '%s[ERR]%s %s\n'  "$C_RED" "$C_RST" "$*" >&2; exit 1; }
 need_arg() { [ -n "${1:-}" ] || die "$2"; }
 
 valid_name() {
-  # allow letters, digits, dot, underscore, hyphen; non-empty
+  # letters, digits, dot, underscore, hyphen; not empty, and not starting
+  # with "-" (would read as an option). Client certificate names are also
+  # checked by make-client.sh (no leading "." there: they become file names).
   case "$1" in
-    "")            return 1 ;;
+    ""|-*)             return 1 ;;
     *[!A-Za-z0-9._-]*) return 1 ;;
-    *)             return 0 ;;
+    *)                 return 0 ;;
   esac
 }
 
 require_name() {
   need_arg "${1:-}" "$2"
-  valid_name "$1" || die "invalid name '$1' (allowed: letters, digits, . _ -)"
+  valid_name "$1" || die "invalid name '$1' (allowed: letters, digits, . _ -; not starting with -)"
 }
 
 user_exists() {
-  [ -f "$PASSWD" ] && cut -d: -f1 "$PASSWD" | grep -qx "$1"
+  # fixed string, whole line: "a.b" must not match "axb"
+  [ -f "$PASSWD" ] && cut -d: -f1 "$PASSWD" | grep -qxF -- "$1"
 }
 
 require_tty() {

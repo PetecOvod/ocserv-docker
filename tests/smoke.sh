@@ -153,6 +153,26 @@ tunnel_check "certificate" /dev/null -c "$WORK/cert.pem" -k "$WORK/key.pem"
 docker exec "$NAME" occtl show users | grep -qw "smoke-cert" || fail "occtl does not list the certificate session"
 stop_client
 
+log "reissued client certificate: a matching new pair that logs in"
+docker exec "$NAME" ocs client issue smoke-cert >/dev/null 2>&1 || fail "reissue failed"
+docker cp -q "$NAME:/etc/ocserv/auth/clients/smoke-cert-cert.pem" "$WORK/cert2.pem"
+docker cp -q "$NAME:/etc/ocserv/auth/clients/smoke-cert-key.pem" "$WORK/key2.pem"
+cmp -s "$WORK/cert.pem" "$WORK/cert2.pem" && fail "reissue kept the old certificate"
+[ "$(openssl x509 -in "$WORK/cert2.pem" -noout -pubkey | openssl sha256)" = \
+  "$(openssl pkey -in "$WORK/key2.pem" -pubout | openssl sha256)" ] || fail "reissued key does not match its certificate"
+tunnel_check "reissued certificate" /dev/null -c "$WORK/cert2.pem" -k "$WORK/key2.pem"
+stop_client
+
+log "ocs matches user names literally"
+docker exec "$NAME" sh -c "printf 'axb:*:x\n' >> /etc/ocserv/auth/passwd"
+if docker exec "$NAME" ocs user del a.b >/dev/null 2>&1; then fail "'ocs user del a.b' acted on user 'axb'"; fi
+docker exec "$NAME" ocs user list | grep -qw axb || fail "user 'axb' is gone"
+for bad in ../x -x .hidden; do
+  if docker exec "$NAME" sh /scripts/make-client.sh "$bad" >/dev/null 2>&1; then
+    fail "make-client.sh accepted the name '$bad'"
+  fi
+done
+
 log "a certificate from another CA is rejected"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$USER_NAME" \
   -keyout "$WORK/foreign-key.pem" -out "$WORK/foreign-cert.pem" >/dev/null 2>&1
