@@ -145,8 +145,15 @@ if [ ! -f "$AUTH_DIR/passwd" ]; then
   log "Created empty $AUTH_DIR/passwd"
 fi
 
-# Self-signed certs if none
-if [ ! -f "$CERT_DIR/cert/ca.pem" ] && [ -f "$TEMPL_DIR/ca.tmpl" ]; then
+# Self-signed certs if none. SRV_CN (server name) and SRV_CA (CA name) are
+# needed only when something has to be generated; without them nothing is
+# generated (e.g. when ocserv.conf points to certificates from elsewhere).
+have_names() {
+  [ -n "${SRV_CN:-}" ] && [ -n "${SRV_CA:-}" ] && return 0
+  log "WARNING: SRV_CN or SRV_CA is empty; not generating $1"
+  return 1
+}
+if [ ! -f "$CERT_DIR/cert/ca.pem" ] && [ -f "$TEMPL_DIR/ca.tmpl" ] && have_names "the CA certificate"; then
   log "Generating CA certificate..."
   envsubst < "$TEMPL_DIR/ca.tmpl" > /tmp/ca.tmpl
   certtool --generate-privkey --outfile "$CERT_DIR/cert/ca-key.pem"
@@ -155,9 +162,17 @@ if [ ! -f "$CERT_DIR/cert/ca.pem" ] && [ -f "$TEMPL_DIR/ca.tmpl" ]; then
     --outfile "$CERT_DIR/cert/ca.pem" \
     --template /tmp/ca.tmpl
 fi
-if [ ! -f "$CERT_DIR/cert/server-cert.pem" ] && [ -f "$TEMPL_DIR/server.tmpl" ]; then
+if [ ! -f "$CERT_DIR/cert/server-cert.pem" ] && [ -f "$TEMPL_DIR/server.tmpl" ] &&
+   [ -f "$CERT_DIR/cert/ca-key.pem" ] && have_names "the server certificate"; then
   log "Generating server certificate..."
   envsubst < "$TEMPL_DIR/server.tmpl" > /tmp/server.tmpl
+  # Clients check the name in subjectAltName, not in the CN.
+  case "$SRV_CN" in
+    *:*)       san=ip_address ;;   # IPv6
+    *[!0-9.]*) san=dns_name ;;
+    *)         san=ip_address ;;   # IPv4
+  esac
+  echo "$san = \"$SRV_CN\"" >> /tmp/server.tmpl
   certtool --generate-privkey --outfile "$CERT_DIR/cert/server-key.pem"
   certtool --generate-certificate \
     --load-privkey "$CERT_DIR/cert/server-key.pem" \
@@ -180,6 +195,45 @@ if [ -f "$TEMPL_DIR/ocserv.conf.tmpl" ]; then
     envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$CONF_FILE"
   fi
 fi
+
+# -------------------------------------
+# Server certificates and keys: present, readable, and pairs
+# -------------------------------------
+# All server-cert/server-key lines of ocserv.conf, in order, as "cert|key"
+# (surrounding quotes removed); without any, the default paths.
+cert_key_pairs() {
+  awk '
+    function val(line) { sub(/^[^=]*=[ \t]*/, "", line); sub(/[ \t]+$/, "", line)
+                         if (line ~ /^".*"$/) line = substr(line, 2, length(line) - 2); return line }
+    /^[ \t]*server-cert[ \t]*=/ { c[++nc] = val($0) }
+    /^[ \t]*server-key[ \t]*=/  { k[++nk] = val($0) }
+    END { for (i = 1; i <= nc; i++) print c[i] "|" k[i] }
+  ' "$CONF_FILE"
+}
+pairs="$(cert_key_pairs)"
+[ -n "$pairs" ] || pairs="$CERT_DIR/cert/server-cert.pem|$CERT_DIR/cert/server-key.pem"
+empty_pub="$(printf '' | openssl sha256)"
+echo "$pairs" | while IFS='|' read -r cert key; do
+  case "$cert$key" in
+    *:*) log "Not checking $cert / $key: not plain files"; continue ;;
+  esac
+  [ -r "$cert" ] || { log "ERROR: server certificate not found: $cert"; exit 1; }
+  [ -r "$key" ]  || { log "ERROR: server key not found: $key"; exit 1; }
+  if grep -q ENCRYPTED "$key"; then
+    log "Not checking $key: encrypted key"
+  else
+    cert_pub="$(openssl x509 -in "$cert" -noout -pubkey 2>/dev/null | openssl sha256)"
+    key_pub="$(openssl pkey -in "$key" -pubout 2>/dev/null | openssl sha256)"
+    if [ "$cert_pub" = "$empty_pub" ] || [ "$key_pub" = "$empty_pub" ] || [ "$cert_pub" != "$key_pub" ]; then
+      log "ERROR: $key does not match $cert (or one of them is not valid PEM)"
+      exit 1
+    fi
+  fi
+  if ! openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -q .; then
+    log "WARNING: $cert has no subjectAltName; current clients reject such certificates."
+    log "         For a self-signed one: delete server-cert.pem and server-key.pem and restart to regenerate."
+  fi
+done || exit 1
 
 # -------------------------------------
 # Trap & lifecycle: apply/cleanup iptables, forward signals
@@ -207,9 +261,10 @@ trap shutdown EXIT
 # Apply rules before starting ocserv
 apply_iptables
 
-# Start ocserv in background (not exec, so traps will run)
+# Start ocserv in background (not exec, so traps will run). Logs go to
+# stderr (docker logs); the level comes from log-level in ocserv.conf.
 log "Starting OpenConnect VPN server..."
-ocserv -f -c "$CONF_FILE" -d 2 &
+ocserv -f -c "$CONF_FILE" --log-stderr &
 ocserv_pid=$!
 
 # Wait for ocserv to exit (container exits with same code; cleanup runs in trap)
