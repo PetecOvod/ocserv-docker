@@ -181,8 +181,10 @@ conf_top_lines() {
       val = $0; sub(/^[^=]*=[ \t]*/, "", val); sub(/[ \t\r]+$/, "", val)
       if (val ~ /^".*"$/) val = substr(val, 2, length(val) - 2)
       # ocserv reads method names in any case: CERTIFICATE = certificate.
-      i = index(val, "["); if (i == 0) i = length(val) + 1
-      val = tolower(substr(val, 1, i - 1)) substr(val, i)
+      if (key == "auth" || key == "enable-auth") {
+        i = index(val, "["); if (i == 0) i = length(val) + 1
+        val = tolower(substr(val, 1, i - 1)) substr(val, i)
+      }
       print key " " val
     }
   ' "$CONF_FILE"
@@ -305,6 +307,27 @@ if [ -f "$TEMPL_DIR/ocserv.conf.tmpl" ]; then
     mv "$CONF_FILE.new" "$CONF_FILE"
     check_auth_config
   fi
+fi
+
+# -------------------------------------
+# Client certificate revocation (crl in ocserv.conf)
+# -------------------------------------
+# ocserv does not start without the crl file. The image's own list
+# (cert/crl.pem, kept by 'ocs client revoke') is rebuilt from its records
+# when it is missing or not signed by the current CA.
+OWN_CRL="$CERT_DIR/cert/crl.pem"
+crl_file="$(conf_top_lines crl | sed -n 's/^crl //p' | head -n1)"
+if [ -z "$crl_file" ]; then
+  log "Client certificate revocation: off (to use 'ocs client revoke', add 'crl = $OWN_CRL' to ocserv.conf and restart)"
+elif [ "$crl_file" = "$OWN_CRL" ]; then
+  if [ ! -f "$OWN_CRL" ] || ! certtool --verify-crl --load-ca-certificate "$CERT_DIR/cert/ca.pem" \
+       --infile "$OWN_CRL" >/dev/null 2>&1; then
+    log "Building $OWN_CRL from the revocation records..."
+    sh /scripts/crl.sh update || { log "ERROR: cannot build $OWN_CRL (see above); ocserv does not start without it"; exit 1; }
+  fi
+  log "Client certificate revocation: on ($OWN_CRL)"
+else
+  log "Client certificate revocation: on ($crl_file; 'ocs client revoke' updates $OWN_CRL, not this file)"
 fi
 
 # -------------------------------------
