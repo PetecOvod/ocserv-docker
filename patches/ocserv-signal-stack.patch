@@ -1,0 +1,48 @@
+Signal stack of the worker: at least 4 x the run-time minimum.
+
+ocserv sizes the worker's alternate signal stack with the constant SIGSTKSZ
+(8192 on x86_64 with musl). On CPUs with a large signal frame (e.g. Intel
+Xeon with AMX) the run-time minimum (sysconf(_SC_MINSIGSTKSZ)) is larger,
+musl's sigaltstack() fails with ENOMEM and every worker exits:
+"sigaltstack: Out of memory". Not fixed upstream as of ocserv 1.5.0.
+
+--- a/src/worker-misc.c
++++ b/src/worker-misc.c
+@@ -227,21 +227,34 @@
+ {
+ #if defined(HAVE_SIGALTSTACK) && defined(HAVE_POSIX_MEMALIGN)
+ 	stack_t ss;
++	size_t size = SIGSTKSZ;
+ 	int e;
++#ifdef _SC_MINSIGSTKSZ
++	/* The signal frame size depends on the CPU (e.g. AMX state) and may
++	 * exceed the constant SIGSTKSZ; musl then rejects the stack (ENOMEM).
++	 * Use the run-time minimum with room for the handlers. */
++	long min = sysconf(_SC_MINSIGSTKSZ);
++
++	if (min > 0 && (size_t)min * 4 > size) {
++		size_t page = getpagesize();
++
++		size = ((size_t)min * 4 + page - 1) / page * page;
++	}
++#endif
+ 
+ 	/* setup the stack for signal handlers */
+-	if (posix_memalign((void **)&ss.ss_sp, getpagesize(), SIGSTKSZ) != 0) {
++	if (posix_memalign((void **)&ss.ss_sp, getpagesize(), size) != 0) {
+ 		oclog(ws, LOG_ERR,
+ 		      "could not allocate memory for signal stack");
+ 		exit(EXIT_FAILURE);
+ 	}
+-	if (mprotect(ss.ss_sp, SIGSTKSZ, PROT_READ | PROT_WRITE) == -1) {
++	if (mprotect(ss.ss_sp, size, PROT_READ | PROT_WRITE) == -1) {
+ 		e = errno;
+ 		free(ss.ss_sp);
+ 		oclog(ws, LOG_ERR, "mprotect: %s", strerror(e));
+ 		exit(EXIT_FAILURE);
+ 	}
+-	ss.ss_size = SIGSTKSZ;
++	ss.ss_size = size;
+ 	ss.ss_flags = 0;
+ 	if (sigaltstack(&ss, NULL) == -1) {
+ 		e = errno;

@@ -29,10 +29,13 @@ WORKDIR /tmp
 # ocserv-fw (restrict-user-to-routes/ports) uses iptables, which the image
 # ships; the upstream default is nftables.
 # Retries cover dropped connections to the download servers.
+# patches/: fixes not released upstream yet (see the header of each file).
+COPY patches /tmp/patches
 RUN curl -fLO --retry 5 --retry-all-errors https://www.infradead.org/ocserv/download/ocserv-${OCSERV_VERSION}.tar.xz && \
     echo "${OCSERV_SHA256}  ocserv-${OCSERV_VERSION}.tar.xz" | sha256sum -c - && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
     cd ocserv-${OCSERV_VERSION} && \
+    for p in /tmp/patches/*.patch; do patch -p1 < "$p"; done && \
     meson setup build \
       --prefix=/usr --sysconfdir=/etc --buildtype=release \
       -Dpam=disabled -Dradius=disabled -Dgssapi=disabled -Dliboath=disabled \
