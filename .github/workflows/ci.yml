@@ -118,6 +118,10 @@ jobs:
       - name: Smoke test
         run: tests/smoke.sh ocserv:ci
 
+      # Which logins each AUTH_MODE accepts and rejects.
+      - name: Authentication modes test
+        run: tests/auth-modes.sh ocserv:ci
+
       # Certificate issue and renewal through get-cert.sh, against Pebble.
       - name: ACME test
         if: matrix.platform == 'linux/amd64'
