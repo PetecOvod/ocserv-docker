@@ -56,7 +56,8 @@ LABEL maintainer="Yaroslav Minaev <mail@minaev.pro>"
 #   ocserv-worker, occtl and ocpasswd (checked with ldd)
 # - gnutls-utils: certtool (self-signed on first run)
 # - iptables(+legacy) & iproute2: NAT rules and route detection
-# - gettext: envsubst for templating configs
+# - gettext-envsubst: envsubst for templating configs (alone, without the
+#   rest of gettext and its libxml2)
 # - curl/openssl/ca-certificates/tzdata/socat: acme.sh + TLS + logs
 # apk upgrade picks up fixes released after the base image was built.
 RUN apk upgrade --no-cache \
@@ -70,7 +71,7 @@ RUN apk upgrade --no-cache \
     iptables \
     iptables-legacy \
     iproute2 \
-    gettext \
+    gettext-envsubst \
     curl \
     openssl \
     socat \
