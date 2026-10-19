@@ -135,6 +135,115 @@ cleanup_iptables() {
 }
 
 # -------------------------------------
+# Authentication mode
+# -------------------------------------
+# AUTH_MODE: password | cert | password-or-cert | password-and-cert
+# (default: password-or-cert). It is written into ocserv.conf on the first
+# start only; an existing ocserv.conf is never changed. If AUTH_MODE is set
+# and the existing file says otherwise, the container does not start.
+PASSWD_AUTH="plain[passwd=$AUTH_DIR/passwd]"
+auth_lines() {
+  case "$1" in
+    password)          printf 'auth = "%s"\n' "$PASSWD_AUTH" ;;
+    cert)              printf 'auth = "certificate"\n' ;;
+    password-or-cert)  printf 'auth = "%s"\nenable-auth = "certificate"\n' "$PASSWD_AUTH" ;;
+    password-and-cert) printf 'auth = "certificate"\nauth = "%s"\n' "$PASSWD_AUTH" ;;
+    *) return 1 ;;
+  esac
+}
+auth_about() {
+  case "$1" in
+    password)          echo "a password is required" ;;
+    cert)              echo "a client certificate is required" ;;
+    password-or-cert)  echo "a password OR a client certificate is enough (not two factors)" ;;
+    password-and-cert) echo "a client certificate AND a password are required" ;;
+    *)                 echo "set up by hand in ocserv.conf" ;;
+  esac
+}
+AUTH_MODE_SET="${AUTH_MODE:+yes}"
+AUTH_MODE="${AUTH_MODE:-password-or-cert}"
+if ! auth_lines "$AUTH_MODE" >/dev/null; then
+  log "ERROR: AUTH_MODE='$AUTH_MODE' is not valid; use password, cert, password-or-cert or password-and-cert"
+  exit 1
+fi
+AUTH_CONFIG="# AUTH_MODE=$AUTH_MODE: $(auth_about "$AUTH_MODE")
+$(auth_lines "$AUTH_MODE")"
+export AUTH_CONFIG
+
+# Top-level lines of ocserv.conf (the default virtual host, before the first
+# [vhost:...] section) with the given keys, as "<key> <value>", quotes removed.
+conf_top_lines() {
+  awk -v keys="$1" '
+    /^[ \t]*\[/ { exit }
+    /^[ \t]*[a-z-]+[ \t]*=/ {
+      key = $0; sub(/[ \t]*=.*/, "", key); gsub(/[ \t]/, "", key)
+      if (index(" " keys " ", " " key " ") == 0) next
+      val = $0; sub(/^[^=]*=[ \t]*/, "", val); sub(/[ \t\r]+$/, "", val)
+      if (val ~ /^".*"$/) val = substr(val, 2, length(val) - 2)
+      # ocserv reads method names in any case: CERTIFICATE = certificate.
+      i = index(val, "["); if (i == 0) i = length(val) + 1
+      val = tolower(substr(val, 1, i - 1)) substr(val, i)
+      print key " " val
+    }
+  ' "$CONF_FILE"
+}
+# The mode of the auth/enable-auth lines, or "custom" for anything else
+# (pam, radius, otp, other combinations).
+conf_auth_mode() {
+  n_plain=0; n_cert=0; n_alt=0; n_other=0
+  while read -r key val; do
+    [ -n "$key" ] || continue
+    case "$key:$val" in
+      auth:certificate)        n_cert=$((n_cert + 1)) ;;
+      enable-auth:certificate) n_alt=$((n_alt + 1)) ;;
+      'auth:plain[passwd='*']')
+        file="${val#plain\[passwd=}"; file="${file%]}"
+        case "$file" in
+          ''|*[],[]*) n_other=$((n_other + 1)) ;;
+          *)          n_plain=$((n_plain + 1)) ;;
+        esac ;;
+      *) n_other=$((n_other + 1)) ;;
+    esac
+  done <<EOF
+$(conf_top_lines "auth enable-auth")
+EOF
+  if [ "$n_other" -eq 0 ]; then
+    case "$n_plain$n_cert$n_alt" in
+      100) echo password; return ;;
+      010) echo cert; return ;;
+      101) echo password-or-cert; return ;;
+      110) echo password-and-cert; return ;;
+    esac
+  fi
+  echo custom
+}
+log_auth_lines() {
+  conf_top_lines "auth enable-auth" | while read -r key val; do log "    $key = \"$val\""; done
+}
+check_auth_config() {
+  mode="$(conf_auth_mode)"
+  log "Authentication: $mode - $(auth_about "$mode")"
+  if [ "$mode" = custom ]; then
+    log_auth_lines
+  fi
+  if grep -Eq '^[[:space:]]*\[vhost:' "$CONF_FILE"; then
+    log "    (the default virtual host; [vhost:...] sections may set their own)"
+  fi
+  if [ -n "$AUTH_MODE_SET" ] && [ "$mode" != "$AUTH_MODE" ]; then
+    log "ERROR: AUTH_MODE=$AUTH_MODE, but $CONF_FILE is set up for $mode:"
+    log_auth_lines
+    log "  ocserv.conf is not changed automatically. Back it up, replace these lines with"
+    auth_lines "$AUTH_MODE" | while IFS= read -r line; do log "    $line"; done
+    log "  and restart; or remove AUTH_MODE to keep the current authentication."
+    exit 1
+  fi
+}
+# Check an existing ocserv.conf before anything is written.
+if [ -f "$CONF_FILE" ]; then
+  check_auth_config
+fi
+
+# -------------------------------------
 # Files & templates
 # -------------------------------------
 mkdir -p "$CONF_DIR"
@@ -192,7 +301,9 @@ if [ -f "$TEMPL_DIR/ocserv.conf.tmpl" ]; then
     log "Using existing ocserv.conf: $CONF_FILE"
   else
     log "Generating ocserv.conf from template -> $CONF_FILE"
-    envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$CONF_FILE"
+    envsubst < "$TEMPL_DIR/ocserv.conf.tmpl" > "$CONF_FILE.new"
+    mv "$CONF_FILE.new" "$CONF_FILE"
+    check_auth_config
   fi
 fi
 

@@ -43,16 +43,20 @@
 #auth = "plain[passwd=./sample.passwd,otp=./sample.otp]"
 #auth = "plain[passwd=./sample.passwd]"
 #auth = "certificate"
-auth = "plain[passwd=/etc/ocserv/auth/passwd]"
 #auth = "radius[config=/etc/radiusclient/radiusclient.conf,groupconfig=true]"
 
 # Specify alternative authentication methods that are sufficient
 # for authentication. That is, if set, any of the methods enabled
 # will be sufficient to login.
 #enable-auth = "plain[passwd=/etc/ocserv/passwd]"
-enable-auth = "certificate"
+#enable-auth = "certificate"
 #enable-auth = "gssapi"
 #enable-auth = "gssapi[keytab=/etc/key.tab,require-local-user-map=true,tgt-freshness-time=900]"
+
+# The authentication of this server: written from AUTH_MODE on the first
+# start. To change it later, edit these lines and restart the container
+# (a reload does not change authentication methods).
+${AUTH_CONFIG}
 
 # Accounting methods available:
 # radius: can be combined with any authentication method, it provides

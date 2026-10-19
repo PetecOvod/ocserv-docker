@@ -56,6 +56,7 @@ environment:
   - VPN_SUBNET=10.10.10.0/24
   - USE_IPTABLES_NFT=true      # set false on legacy hosts (e.g. Synology)
   - ENABLE_DTLS=true           # set false to force TCP-only (DTLS/UDP disabled)
+  - AUTH_MODE=password-or-cert # see "Authentication modes" below
   # Self-signed bootstrap
   - SRV_CN=vpn.example.com   # server CN
   - SRV_CA=VPN CA            # self-signed CA name
@@ -193,6 +194,25 @@ ocs status                    # server status (uptime, sessions, bans)
 > The underlying scripts (`get-cert.sh`, `make-client.sh`) and raw tools
 > (`ocpasswd`, `occtl`) still work directly for backward compatibility; `ocs`
 > is just the friendlier front door.
+
+## 🔑 Authentication modes
+
+`AUTH_MODE` sets how users log in:
+
+| `AUTH_MODE` | A user needs |
+|---|---|
+| `password` | a password |
+| `cert` | a client certificate |
+| `password-or-cert` (default) | a password **or** a client certificate (either one is enough; this is not two-factor) |
+| `password-and-cert` | a client certificate **and** the password of the user named in its CN |
+
+The mode is written into `ocserv.conf` on the first start, and the log shows it
+on every start (`Authentication: ...`). `ocserv.conf` is never rewritten: if
+`AUTH_MODE` is set and the existing file uses another mode, the container
+stops with an error that shows the lines to change. To switch the mode later,
+edit the `auth` / `enable-auth` lines in `ocserv.conf` (or set `AUTH_MODE` to
+see what they should be) and restart the container; a reload does not change
+authentication methods.
 
 ## 🔐 Users
 
