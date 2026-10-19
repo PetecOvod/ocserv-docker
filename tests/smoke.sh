@@ -155,8 +155,8 @@ tunnel_check "certificate" /dev/null -c "$WORK/cert.pem" -k "$WORK/key.pem"
 docker exec "$NAME" occtl show users | grep -w "smoke-cert" >/dev/null || fail "occtl does not list the certificate session"
 stop_client
 
-log "reissued client certificate: a matching new pair that logs in"
-docker exec "$NAME" ocs client issue smoke-cert >/dev/null 2>&1 || fail "reissue failed"
+log "renewed client certificate: a matching new pair that logs in"
+docker exec "$NAME" ocs client renew smoke-cert >/dev/null 2>&1 || fail "renew failed"
 docker cp -q "$NAME:/etc/ocserv/auth/clients/smoke-cert-cert.pem" "$WORK/cert2.pem"
 docker cp -q "$NAME:/etc/ocserv/auth/clients/smoke-cert-key.pem" "$WORK/key2.pem"
 cmp -s "$WORK/cert.pem" "$WORK/cert2.pem" && fail "reissue kept the old certificate"

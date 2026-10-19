@@ -2,8 +2,10 @@
 # Issue (or reissue) a client certificate signed by the local CA.
 # Usage: make-client.sh <name> [export]
 # Files: /etc/ocserv/auth/clients/<name>-key.pem, <name>-cert.pem and, with
-# "export", <name>.p12. A reissue replaces the key and the certificate
-# together; a run that fails leaves the previous pair as it was.
+# "export", <name>.p12. Valid for CLIENT_CERT_DAYS days (default 3650).
+# A reissue replaces the key and the certificate together; a run that fails
+# leaves the previous pair as it was. A reissue does not revoke the previous
+# certificate: 'ocs client renew' does.
 set -eu
 
 OCSERV_DIR="/etc/ocserv"
@@ -30,15 +32,32 @@ case "$NAME" in
     exit 1 ;;
 esac
 
+DAYS="${CLIENT_CERT_DAYS:-3650}"
+case "$DAYS" in
+  ''|0*|*[!0-9]*) DAYS=0 ;;
+esac
+if [ "${#DAYS}" -gt 4 ] || [ "$DAYS" -lt 1 ] || [ "$DAYS" -gt 3650 ]; then
+  echo "[ERR] Invalid validity '${CLIENT_CERT_DAYS:-}' days (a whole number from 1 to 3650)" >&2
+  exit 1
+fi
+
 [ -f "$CLIENT_TMPL" ] || { echo "[ERR] Missing template: $CLIENT_TMPL" >&2; exit 1; }
 [ -f "$CA_KEY" ] && [ -f "$CA_PEM" ] || { echo "[ERR] Missing CA: $CA_PEM / $CA_KEY" >&2; exit 1; }
 
 umask 077
 mkdir -p "$CLIENTS_DIR"
 
-# One issue at a time, so two runs for the same name cannot mix their files.
-exec 9>"$CLIENTS_DIR/.lock"
-flock -n 9 || { echo "[ERR] Another client certificate is being issued; try again" >&2; exit 1; }
+# One client certificate operation at a time, so two runs cannot mix their
+# files; ocs takes this lock itself and sets OCS_LOCK_HELD.
+if [ -z "${OCS_LOCK_HELD:-}" ]; then
+  exec 9>"$CLIENTS_DIR/.lock"
+  i=0
+  until flock -n 9; do
+    i=$((i + 1))
+    [ "$i" -lt 30 ] || { echo "[ERR] Another client certificate operation is running; try again" >&2; exit 1; }
+    sleep 1
+  done
+fi
 
 KEY="$CLIENTS_DIR/${NAME}-key.pem"
 CERT="$CLIENTS_DIR/${NAME}-cert.pem"
@@ -49,11 +68,14 @@ P12="$CLIENTS_DIR/${NAME}.p12"
 WORK="$(mktemp -d "$CLIENTS_DIR/.issue-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-[ -f "$CERT" ] && echo "[INFO] Replacing the existing certificate for $NAME"
+if [ -f "$CERT" ]; then
+  echo "[INFO] Replacing the existing certificate for $NAME"
+  [ -n "${OCS_LOCK_HELD:-}" ] || echo "[WARN] The previous certificate stays valid; 'ocs client renew $NAME' also revokes it" >&2
+fi
 echo "[INFO] Generating key for $NAME"
 certtool --generate-privkey --outfile "$WORK/key.pem"
 
-sed "s/@CN@/${NAME}/g" "$CLIENT_TMPL" > "$WORK/client.tmpl"
+sed -e "s/@CN@/${NAME}/g" -e "s/@DAYS@/${DAYS}/g" "$CLIENT_TMPL" > "$WORK/client.tmpl"
 
 echo "[INFO] Signing client certificate"
 certtool --generate-certificate --load-privkey "$WORK/key.pem" \

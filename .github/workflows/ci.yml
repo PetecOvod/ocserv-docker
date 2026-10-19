@@ -122,6 +122,10 @@ jobs:
       - name: Authentication modes test
         run: tests/auth-modes.sh ocserv:ci
 
+      # Client certificates: issue, renew, revoke, old serial 01, CRL.
+      - name: Client certificates test
+        run: tests/clients.sh ocserv:ci
+
       # Certificate issue and renewal through get-cert.sh, against Pebble.
       - name: ACME test
         if: matrix.platform == 'linux/amd64'

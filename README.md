@@ -57,6 +57,7 @@ environment:
   - USE_IPTABLES_NFT=true      # set false on legacy hosts (e.g. Synology)
   - ENABLE_DTLS=true           # set false to force TCP-only (DTLS/UDP disabled)
   - AUTH_MODE=password-or-cert # see "Authentication modes" below
+  - CLIENT_CERT_DAYS=3650      # validity of new client certificates
   # Self-signed bootstrap
   - SRV_CN=vpn.example.com   # server CN
   - SRV_CA=VPN CA            # self-signed CA name
@@ -182,8 +183,10 @@ ocs user list                 # list password-auth users
 ocs user add <name>           # create a user (prompts for password)
 ocs user passwd <name>        # change a user's password
 ocs user del <name>           # delete a user
-ocs client issue <name>       # issue a client cert (cert auth)
-ocs client issue <name> --p12 #   ...and export a .p12 for device import
+ocs client list               # client certs: expiry, serial, status
+ocs client issue <name> --p12 # issue a client cert (+ .p12 for device import)
+ocs client renew <name>       # new client cert; the old one is revoked
+ocs client revoke <name>      # revoke a client cert, close its sessions
 ocs cert issue <http|dns>     # issue/renew the server cert (acme.sh)
 ocs cert info                 # server cert subject/issuer/expiry + status
 ocs session list              # active VPN sessions
@@ -234,6 +237,25 @@ docker exec -it ocserv ocs client issue alice --p12
 Files are stored under `/etc/ocserv/auth/clients/`:
 - `alice-key.pem`, `alice-cert.pem`
 - optional `alice.p12` (with `--p12`)
+
+A certificate is valid for `CLIENT_CERT_DAYS` days (default 3650), or for
+`--days N` given to `issue` / `renew`.
+
+```bash
+docker exec ocserv ocs client list              # expiry, serial, status
+docker exec ocserv ocs client renew alice --p12 # new certificate; the old one is revoked
+docker exec ocserv ocs client revoke alice      # lost device: revoke it
+```
+
+`revoke` adds the certificate to the revocation list
+(`/etc/ocserv/cert/crl.pem`), closes the user's sessions and deletes the key.
+`renew` revokes the previous certificate but keeps active sessions connected.
+The list is enforced by the `crl = /etc/ocserv/cert/crl.pem` line of
+`ocserv.conf`; the log shows on every start whether revocation is on.
+
+Certificates issued by earlier image versions all have serial number 01, so
+one of them cannot be revoked alone. Renew each of them, then block all of
+them at once with `ocs client revoke-legacy`.
 
 ---
 

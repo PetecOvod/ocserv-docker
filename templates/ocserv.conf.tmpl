@@ -266,10 +266,8 @@ cert-user-oid = 2.5.4.3
 #cert-group-oid = 2.5.4.11
 
 # The revocation list of the certificates issued by the 'ca-cert' above.
-# See the manual to generate an empty CRL initially. The CRL will be reloaded
-# periodically when ocserv detects a change in the file. To force a reload use
-# SIGHUP.
-#crl = /etc/ocserv/crl.pem
+# The container creates it on start and 'ocs client revoke' updates it.
+crl = /etc/ocserv/cert/crl.pem
 
 # Uncomment this to enable compression negotiation (LZS, LZ4).
 # To increase security it is recommended to keep it disabled;
