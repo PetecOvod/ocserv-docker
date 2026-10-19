@@ -35,7 +35,7 @@ RUN curl -fLO --retry 5 --retry-all-errors https://www.infradead.org/ocserv/down
     echo "${OCSERV_SHA256}  ocserv-${OCSERV_VERSION}.tar.xz" | sha256sum -c - && \
     tar -xf ocserv-${OCSERV_VERSION}.tar.xz && \
     cd ocserv-${OCSERV_VERSION} && \
-    for p in /tmp/patches/*.patch; do patch -p1 < "$p"; done && \
+    for p in /tmp/patches/*.patch; do patch -p1 < "$p" || exit 1; done && \
     meson setup build \
       --prefix=/usr --sysconfdir=/etc --buildtype=release \
       -Dpam=disabled -Dradius=disabled -Dgssapi=disabled -Dliboath=disabled \
