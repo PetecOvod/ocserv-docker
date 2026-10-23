@@ -4,7 +4,7 @@ ocserv sizes the worker's alternate signal stack with the constant SIGSTKSZ
 (8192 on x86_64 with musl). On CPUs with a large signal frame (e.g. Intel
 Xeon with AMX) the run-time minimum (sysconf(_SC_MINSIGSTKSZ)) is larger,
 musl's sigaltstack() fails with ENOMEM and every worker exits:
-"sigaltstack: Out of memory". Not fixed upstream as of ocserv 1.5.0.
+"sigaltstack: Out of memory". Not fixed upstream as of ocserv 1.6.0.
 
 --- a/src/worker-misc.c
 +++ b/src/worker-misc.c

@@ -4,8 +4,8 @@ FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4c
 
 # To update: bump OCSERV_VERSION and put the sha256 of the new tarball into
 # OCSERV_SHA256 (check the tarball's .sig against the maintainer's GPG key).
-ENV OCSERV_VERSION=1.5.0
-ARG OCSERV_SHA256=42ced08958b9576ab134fcb7bdc7f8df5e13214fd147855f99021fedcf0eedbe
+ENV OCSERV_VERSION=1.6.0
+ARG OCSERV_SHA256=2d3303a0d9e06eabfa08694b9dca3c558fef36418857bebf1b8de57ece5f9f32
 
 RUN apk add --no-cache \
     build-base \
@@ -27,7 +27,8 @@ WORKDIR /tmp
 # limiting) fails the build without linux-headers, and talloc/protobuf-c are
 # always the bundled copies (the runtime stage ships no shared ones).
 # ocserv-fw (restrict-user-to-routes/ports) uses iptables, which the image
-# ships; the upstream default is nftables.
+# ships; the upstream default is nftables. musl has no glibc backtrace
+# (assume-glibc), and the test suite is not built.
 # Retries cover dropped connections to the download servers.
 # patches/: fixes not released upstream yet (see the header of each file).
 COPY patches /tmp/patches
@@ -42,6 +43,7 @@ RUN curl -fLO --retry 5 --retry-all-errors https://www.infradead.org/ocserv/down
       -Dlibnl=disabled -Dmaxmind=disabled -Dgeoip=disabled -Dlz4=disabled \
       -Dsystemd=disabled -Dutmp=disabled -Dlibwrap=disabled \
       -Dseccomp=enabled -Dsock-diag=enabled -Dlocal-talloc=true -Dlocal-protobuf=true \
+      -Dassume-glibc=false -Dtests=false \
       -Dpager= -Dfirewall-script=iptables && \
     meson compile -C build && \
     DESTDIR=/tmp/build-output meson install -C build --no-rebuild
