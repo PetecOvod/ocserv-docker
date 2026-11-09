@@ -18,13 +18,24 @@ conf_value() {
   ' "$CONF_FILE" 2>/dev/null
 }
 
-# ocserv turns occtl on only for "true" or "yes" (any case); off when unset.
-occtl_on="$(conf_value use-occtl)"
-[ -n "$occtl_on" ] || occtl_on="$(conf_value use-dbus)"
-case "$(echo "$occtl_on" | tr '[:upper:]' '[:lower:]')" in
-  true|yes) ;;
-  *) exit 0 ;;
-esac
+# Whether ocserv turns occtl on, read as ocserv does, line by line: off when
+# unset; use-occtl sets it ("true" or "yes" in any case is on); the older
+# use-dbus can only turn it on.
+occtl_on() {
+  awk '
+    /^[ \t]*\[/ { exit }
+    /^[ \t]*use-(occtl|dbus)[ \t]*=/ {
+      key = $0; sub(/[ \t]*=.*/, "", key); gsub(/[ \t]/, "", key)
+      v = $0; sub(/^[^=]*=[ \t]*/, "", v); sub(/[ \t\r]+$/, "", v)
+      if (v ~ /^".*"$/) v = substr(v, 2, length(v) - 2)
+      v = tolower(v); t = (v == "true" || v == "yes")
+      if (key == "use-occtl" || t) on = t
+    }
+    END { exit !on }
+  ' "$CONF_FILE" 2>/dev/null
+}
+
+occtl_on || exit 0
 sock="$(conf_value occtl-socket-file)"
 if [ -n "$sock" ]; then
   occtl -s "$sock" show status >/dev/null 2>&1
