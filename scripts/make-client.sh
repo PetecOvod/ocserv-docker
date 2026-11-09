@@ -2,7 +2,8 @@
 # Issue (or reissue) a client certificate signed by the local CA.
 # Usage: make-client.sh <name> [export]
 # Files: /etc/ocserv/auth/clients/<name>-key.pem, <name>-cert.pem and, with
-# "export", <name>.p12. Valid for CLIENT_CERT_DAYS days (default 3650).
+# "export", <name>.p12. Valid for CLIENT_CERT_DAYS days (default 3650), but
+# never past the expiry of the CA.
 # A reissue replaces the key and the certificate together; a run that fails
 # leaves the previous pair as it was. A reissue does not revoke the previous
 # certificate: 'ocs client renew' does.
@@ -44,6 +45,19 @@ fi
 [ -f "$CLIENT_TMPL" ] || { echo "[ERR] Missing template: $CLIENT_TMPL" >&2; exit 1; }
 [ -f "$CA_KEY" ] && [ -f "$CA_PEM" ] || { echo "[ERR] Missing CA: $CA_PEM / $CA_KEY" >&2; exit 1; }
 
+openssl x509 -in "$CA_PEM" -noout -checkend 0 >/dev/null 2>&1 \
+  || { echo "[ERR] The CA certificate has expired: $CA_PEM" >&2; exit 1; }
+# A certificate that outlives its CA is of no use, so the validity stops at
+# the CA's expiry (certtool reads the date as local time: run it in UTC).
+# certtool counts the days when it signs, after the lock and the new key:
+# an hour of margin keeps that from reaching past the CA.
+EXPIRY="expiration_days = $DAYS"
+if ! openssl x509 -in "$CA_PEM" -noout -checkend $((DAYS * 86400 + 3600)) >/dev/null 2>&1; then
+  CA_END="$(openssl x509 -in "$CA_PEM" -noout -enddate -dateopt iso_8601 | sed -e 's/^notAfter=//' -e 's/Z$//')"
+  echo "[INFO] Valid until $CA_END UTC, when the CA expires (not for $DAYS days)"
+  EXPIRY="expiration_date = \"$CA_END\""
+fi
+
 umask 077
 mkdir -p "$CLIENTS_DIR"
 
@@ -75,17 +89,23 @@ fi
 echo "[INFO] Generating key for $NAME"
 certtool --generate-privkey --outfile "$WORK/key.pem"
 
-sed -e "s/@CN@/${NAME}/g" -e "s/@DAYS@/${DAYS}/g" "$CLIENT_TMPL" > "$WORK/client.tmpl"
+sed -e "s/@CN@/${NAME}/g" -e "s/^expiration_days = @DAYS@\$/${EXPIRY}/" -e "s/@DAYS@/${DAYS}/g" \
+  "$CLIENT_TMPL" > "$WORK/client.tmpl"
 
 echo "[INFO] Signing client certificate"
-certtool --generate-certificate --load-privkey "$WORK/key.pem" \
+TZ=UTC certtool --generate-certificate --load-privkey "$WORK/key.pem" \
   --load-ca-certificate "$CA_PEM" --load-ca-privkey "$CA_KEY" \
   --template "$WORK/client.tmpl" --outfile "$WORK/cert.pem"
 
+# The bundle uses 3DES and a SHA-1 MAC with 2048 iterations, which mobile
+# clients import: some refuse certtool's SHA-256 MAC with 600000 iterations.
+# The password is asked for on the terminal, or read from standard input
+# when there is none.
 if [ "$EXPORT" = "export" ]; then
   echo "[INFO] Exporting to PKCS#12: $P12"
-  certtool --to-p12 --load-privkey "$WORK/key.pem" --load-certificate "$WORK/cert.pem" \
-    --pkcs-cipher 3des-pkcs12 --outfile "$WORK/bundle.p12" --outder
+  openssl pkcs12 -export -inkey "$WORK/key.pem" -in "$WORK/cert.pem" -name "$NAME" \
+    -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -iter 2048 \
+    -out "$WORK/bundle.p12"
 fi
 
 mv -f "$WORK/key.pem" "$KEY"

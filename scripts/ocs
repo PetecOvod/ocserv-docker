@@ -289,8 +289,10 @@ $PROG client — client certificates (certificate auth)
 
   $PROG client list                  certificates: expiry, serial, status
   $PROG client issue <name>          create a client key + certificate
-      [--p12]                        also export a .p12 bundle (for import on devices)
-      [--days N]                     valid for N days (default: CLIENT_CERT_DAYS or 3650)
+      [--p12]                        also export a .p12 bundle (for import on devices;
+                                     asks for its password)
+      [--days N]                     valid for N days (default: CLIENT_CERT_DAYS or 3650),
+                                     never past the CA's expiry
   $PROG client renew <name>          new key + certificate; the old one is revoked
       [--p12] [--days N]             (active sessions stay connected)
   $PROG client revoke <name>         revoke, close the user's sessions, delete the key
