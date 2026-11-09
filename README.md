@@ -48,7 +48,10 @@ volumes:
   that ocserv marks as non-reloadable (`auth`, ports, certificate paths, ...)
   still need a restart.
 
-The container reports its health (`docker ps`: healthy) from `occtl show status`.
+The container reports its health (`docker ps`: healthy) from `occtl show status`
+(always healthy with `use-occtl = false` or a command other than the default).
+To turn the check off: `healthcheck: { disable: true }` in compose, or
+`docker run --no-healthcheck`.
 
 ---
 

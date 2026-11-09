@@ -9,6 +9,9 @@ CONF_FILE="$CONF_DIR/ocserv.conf"
 
 log() { echo "[START.SH] $*"; }
 
+# The health check (healthcheck.sh) asks the ocserv started from this file.
+echo "$CONF_FILE" > /run/ocserv-healthcheck
+
 # -----------------------------
 # iptables selector via env
 # -----------------------------
@@ -415,4 +418,10 @@ while :; do
   wait "$ocserv_pid" || code=$?
   kill -0 "$ocserv_pid" 2>/dev/null || break
 done
+# If ocserv ended while wait was interrupted, its status is still to collect.
+if [ "$code" -gt 128 ]; then
+  status=0
+  wait "$ocserv_pid" 2>/dev/null || status=$?
+  [ "$status" -eq 127 ] || code=$status
+fi
 exit "$code"
