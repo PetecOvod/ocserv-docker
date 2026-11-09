@@ -389,7 +389,14 @@ on_term() {
   log "Received termination signal, stopping ocserv..."
   [ -n "$ocserv_pid" ] && kill -TERM "$ocserv_pid" 2>/dev/null || true
 }
+# SIGHUP (docker kill -s HUP) makes ocserv reload ocserv.conf and its
+# certificates, like 'occtl reload'.
+on_hup() {
+  log "Received SIGHUP, reloading ocserv..."
+  [ -n "$ocserv_pid" ] && kill -HUP "$ocserv_pid" 2>/dev/null || true
+}
 trap on_term TERM INT
+trap on_hup HUP
 trap shutdown EXIT
 
 # Apply rules before starting ocserv
@@ -401,5 +408,11 @@ log "Starting OpenConnect VPN server..."
 ocserv -f -c "$CONF_FILE" --log-stderr &
 ocserv_pid=$!
 
-# Wait for ocserv to exit (container exits with same code; cleanup runs in trap)
-wait "$ocserv_pid"
+# Wait for ocserv to exit (container exits with same code; cleanup runs in
+# trap). A handled signal interrupts wait while ocserv may still be running.
+while :; do
+  code=0
+  wait "$ocserv_pid" || code=$?
+  kill -0 "$ocserv_pid" 2>/dev/null || break
+done
+exit "$code"
