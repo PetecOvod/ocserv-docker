@@ -143,11 +143,31 @@ openssl x509 -in "$WORK/bob-cert.pem" -noout -checkend $((29 * 86400)) >/dev/nul
 openssl x509 -in "$WORK/bob-cert.pem" -noout -checkend $((31 * 86400)) >/dev/null && fail "bob is valid for more than 30 days"
 [ "$(openssl x509 -in "$WORK/alice-cert.pem" -noout -serial)" != "$(openssl x509 -in "$WORK/carol-cert.pem" -noout -serial)" ] \
   || fail "two clients have the same serial number"
+CA_END="$(x "openssl x509 -in /etc/ocserv/cert/ca.pem -noout -enddate")"
+[ "$(openssl x509 -in "$WORK/alice-cert.pem" -noout -enddate)" = "$CA_END" ] \
+  || fail "alice's certificate does not stop at the CA's expiry ($CA_END)"
 ocs_fails "already has a certificate" client issue alice
 for d in 0 012 abc 3651 99999999999; do ocs_fails "Invalid validity" client issue dave --days "$d"; done
 docker exec "$NAME" ocs client list | grep -E '^alice +[0-9-]+ +[0-9A-F]+ +valid$' >/dev/null || fail "ocs client list: alice is not valid"
 expect accepted alice
 expect accepted bob
+
+log "issue --p12: a bundle that mobile clients import (3DES, SHA-1 MAC)"
+printf 'p12-secret\np12-secret\n' | docker exec -i "$NAME" ocs client issue erin --p12 >/dev/null 2>&1 \
+  || fail "issue erin --p12"
+fetch erin
+docker cp -q "$NAME:/etc/ocserv/auth/clients/erin.p12" "$WORK/erin.p12"
+openssl pkcs12 -in "$WORK/erin.p12" -info -noout -passin pass:p12-secret >"$WORK/p12.info" 2>&1 \
+  || { cat "$WORK/p12.info" >&2; fail "erin.p12 does not open with its password"; }
+for want in "MAC: sha1, Iteration 2048" "Shrouded Keybag: pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048" \
+            "PKCS7 Encrypted data: pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048"; do
+  grep -qF -- "$want" "$WORK/p12.info" || { cat "$WORK/p12.info" >&2; fail "erin.p12: no '$want'"; }
+done
+[ "$(openssl pkcs12 -in "$WORK/erin.p12" -nokeys -clcerts -passin pass:p12-secret | openssl x509 -noout -fingerprint -sha256)" = \
+  "$(openssl x509 -in "$WORK/erin-cert.pem" -noout -fingerprint -sha256)" ] || fail "erin.p12 holds another certificate"
+openssl pkcs12 -in "$WORK/erin.p12" -nocerts -nodes -passin pass:p12-secret 2>/dev/null | openssl pkey -pubout >"$WORK/erin-p12.pub"
+openssl pkey -in "$WORK/erin-key.pem" -pubout | cmp -s - "$WORK/erin-p12.pub" || fail "erin.p12 holds another key"
+expect accepted erin
 
 log "revoke: login refused, session closed, cookie refused, key deleted"
 connect alice; alice_tunnel=$OC_PID

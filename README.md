@@ -236,15 +236,16 @@ docker exec -it ocserv ocs client issue alice --p12
 ```
 Files are stored under `/etc/ocserv/auth/clients/`:
 - `alice-key.pem`, `alice-cert.pem`
-- optional `alice.p12` (with `--p12`)
+- optional `alice.p12` (with `--p12`): asks for a password that protects the
+  bundle; without a terminal, reads it from standard input (twice, one per line)
 
 A certificate is valid for `CLIENT_CERT_DAYS` days (default 3650), or for
-`--days N` given to `issue` / `renew`.
+`--days N` given to `issue` / `renew`, but never past the expiry of the CA.
 
 ```bash
-docker exec ocserv ocs client list              # expiry, serial, status
-docker exec ocserv ocs client renew alice --p12 # new certificate; the old one is revoked
-docker exec ocserv ocs client revoke alice      # lost device: revoke it
+docker exec ocserv ocs client list                 # expiry, serial, status
+docker exec -it ocserv ocs client renew alice --p12 # new certificate; the old one is revoked
+docker exec ocserv ocs client revoke alice         # lost device: revoke it
 ```
 
 `revoke` adds the certificate to the revocation list
