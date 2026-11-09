@@ -49,8 +49,10 @@ openssl x509 -in "$CA_PEM" -noout -checkend 0 >/dev/null 2>&1 \
   || { echo "[ERR] The CA certificate has expired: $CA_PEM" >&2; exit 1; }
 # A certificate that outlives its CA is of no use, so the validity stops at
 # the CA's expiry (certtool reads the date as local time: run it in UTC).
+# certtool counts the days when it signs, after the lock and the new key:
+# an hour of margin keeps that from reaching past the CA.
 EXPIRY="expiration_days = $DAYS"
-if ! openssl x509 -in "$CA_PEM" -noout -checkend $((DAYS * 86400)) >/dev/null 2>&1; then
+if ! openssl x509 -in "$CA_PEM" -noout -checkend $((DAYS * 86400 + 3600)) >/dev/null 2>&1; then
   CA_END="$(openssl x509 -in "$CA_PEM" -noout -enddate -dateopt iso_8601 | sed -e 's/^notAfter=//' -e 's/Z$//')"
   echo "[INFO] Valid until $CA_END UTC, when the CA expires (not for $DAYS days)"
   EXPIRY="expiration_date = \"$CA_END\""
