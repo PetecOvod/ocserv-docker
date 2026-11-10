@@ -43,6 +43,15 @@ volumes:
 
 - First start: `ocserv.conf` is generated from `templates/ocserv.conf.tmpl`.
 - Next starts: if `ocserv.conf` already exists, it won’t be overwritten.
+- After an edit: `docker kill -s HUP ocserv` (or `docker exec ocserv occtl reload`)
+  makes the running ocserv reload it; connected users stay connected. Settings
+  that ocserv marks as non-reloadable (`auth`, ports, certificate paths, ...)
+  still need a restart.
+
+The container reports its health (`docker ps`: healthy) from `occtl show status`
+(always healthy with `use-occtl = false` or a command other than the default).
+To turn the check off: `healthcheck: { disable: true }` in compose, or
+`docker run --no-healthcheck`.
 
 ---
 

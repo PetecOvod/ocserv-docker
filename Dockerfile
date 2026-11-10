@@ -61,6 +61,7 @@ LABEL maintainer="Yaroslav Minaev <mail@minaev.pro>"
 # - gettext-envsubst: envsubst for templating configs (alone, without the
 #   rest of gettext and its libxml2)
 # - curl/openssl/ca-certificates/tzdata/socat: acme.sh + TLS + logs
+# - tini: init (PID 1) that forwards signals to start.sh and reaps orphans
 # apk upgrade picks up fixes released after the base image was built.
 RUN apk upgrade --no-cache \
  && apk add --no-cache \
@@ -79,6 +80,7 @@ RUN apk upgrade --no-cache \
     socat \
     ca-certificates \
     tzdata \
+    tini \
  && update-ca-certificates
 
 # Install acme.sh from a pinned release (no cron, no profile).
@@ -107,7 +109,13 @@ COPY --from=builder /tmp/build-output /
 # Copy project files
 COPY templates /etc/ocserv/templates
 COPY scripts /scripts
-RUN chmod +x /scripts/start.sh /scripts/ocs \
+RUN chmod +x /scripts/start.sh /scripts/ocs /scripts/healthcheck.sh \
  && ln -sf /scripts/ocs /usr/local/bin/ocs
 
+# Healthy while ocserv's main process answers occtl.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD ["/scripts/healthcheck.sh"]
+
+# -s: also reaps orphans under another init (docker run --init).
+ENTRYPOINT ["/sbin/tini", "-s", "--"]
 CMD ["sh", "/scripts/start.sh"]

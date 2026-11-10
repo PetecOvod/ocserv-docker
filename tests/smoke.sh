@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Smoke test for the image: start ocserv, log in with a password and with a
 # client certificate, pass traffic through the tunnel, reload a new server
-# certificate without dropping the session, stop ocserv and check
-# that its iptables rules are gone.
+# certificate (occtl reload, SIGHUP) without dropping the session, check the
+# init and the health check, stop ocserv and check that its iptables rules
+# are gone.
 #
 # Usage: tests/smoke.sh [image]        (default image: ocserv:ci)
 # Needs on the host: docker, /dev/net/tun, openconnect, ocproxy, curl,
@@ -124,26 +125,37 @@ for target in https://example.com/ https://www.google.com/generate_204 https://c
 done
 case "$code" in 2??) ;; *) fail "no internet through the tunnel (last HTTP code '$code')" ;; esac
 
-log "certificate reload keeps the session"
 served_pin() {
   echo | timeout 10 openssl s_client -connect 127.0.0.1:443 2>/dev/null \
     | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
     | openssl dgst -sha256 -binary | base64
 }
-docker exec "$NAME" sh -c 'cd /etc/ocserv/cert &&
-  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 \
-    -subj /CN=vpn.example.test -keyout new-key.pem -out new-cert.pem 2>/dev/null &&
-  mv new-key.pem server-key.pem && mv new-cert.pem server-cert.pem && occtl reload' >/dev/null \
-  || fail "could not replace the certificate"
-NEW_PIN="pin-sha256:$(docker exec "$NAME" cat /etc/ocserv/cert/server-cert.pem \
-  | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
-  | openssl dgst -sha256 -binary | base64)"
-for _ in $(seq 10); do [ "pin-sha256:$(served_pin)" = "$NEW_PIN" ] && break; sleep 1; done
-[ "pin-sha256:$(served_pin)" = "$NEW_PIN" ] || fail "ocserv still serves the old certificate after reload"
-kill -0 "$OC_PID" 2>/dev/null || fail "the session was dropped by the reload"
-[ "$(curl -s -m 5 --socks5 "127.0.0.1:$SOCKS_PORT" "http://$HOST_IP:$HTTP_PORT/token")" = "$TOKEN" ] \
-  || fail "no traffic through the tunnel after the reload"
-PIN="$NEW_PIN"
+for how in occtl SIGHUP; do
+  log "certificate reload ($how) keeps the session"
+  # ocserv reloads a file only if it changed after the previous reload, in
+  # whole seconds: a new file within the same second would be skipped.
+  sleep 1
+  docker exec "$NAME" sh -c 'cd /etc/ocserv/cert &&
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 \
+      -subj /CN=vpn.example.test -keyout new-key.pem -out new-cert.pem 2>/dev/null &&
+    mv new-key.pem server-key.pem && mv new-cert.pem server-cert.pem' >/dev/null \
+    || fail "could not replace the certificate"
+  if [ "$how" = occtl ]; then
+    docker exec "$NAME" occtl reload >/dev/null || fail "occtl reload failed"
+  else
+    docker kill -s HUP "$NAME" >/dev/null || fail "docker kill -s HUP failed"
+  fi
+  NEW_PIN="pin-sha256:$(docker exec "$NAME" cat /etc/ocserv/cert/server-cert.pem \
+    | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+    | openssl dgst -sha256 -binary | base64)"
+  for _ in $(seq 10); do [ "pin-sha256:$(served_pin)" = "$NEW_PIN" ] && break; sleep 1; done
+  [ "pin-sha256:$(served_pin)" = "$NEW_PIN" ] || fail "ocserv still serves the old certificate after the $how reload"
+  docker inspect -f '{{.State.Running}}' "$NAME" | grep -q true || fail "the container stopped on $how"
+  kill -0 "$OC_PID" 2>/dev/null || fail "the session was dropped by the $how reload"
+  [ "$(curl -s -m 5 --socks5 "127.0.0.1:$SOCKS_PORT" "http://$HOST_IP:$HTTP_PORT/token")" = "$TOKEN" ] \
+    || fail "no traffic through the tunnel after the $how reload"
+  PIN="$NEW_PIN"
+done
 OC=(openconnect --non-inter --servercert "$PIN")
 stop_client
 
@@ -186,8 +198,20 @@ fi
 
 docker exec "$NAME" occtl show status | grep "Status: online" >/dev/null || fail "occtl status is not online"
 
-log "stop: iptables rules are removed"
+log "init and health: tini is PID 1, the container is healthy"
+[ "$(docker exec "$NAME" cat /proc/1/comm)" = tini ] || fail "PID 1 is not tini"
+for _ in $(seq 45); do
+  [ "$(docker inspect -f '{{.State.Health.Status}}' "$NAME")" = healthy ] && break
+  sleep 1
+done
+[ "$(docker inspect -f '{{.State.Health.Status}}' "$NAME")" = healthy ] \
+  || { docker inspect -f '{{json .State.Health}}' "$NAME" >&2; fail "the container is not healthy"; }
+
+log "stop: a clean exit, iptables rules are removed"
 docker stop -t 15 "$NAME" >/dev/null
+[ "$(docker inspect -f '{{.State.ExitCode}}' "$NAME")" = 0 ] \
+  || fail "exit code $(docker inspect -f '{{.State.ExitCode}}' "$NAME") after docker stop, not 0"
+docker logs "$NAME" 2>&1 | grep -F "Shutting down (code=0)" >/dev/null || fail "start.sh did not shut down cleanly"
 rules="$( { as_root iptables-save 2>/dev/null; as_root iptables-legacy-save 2>/dev/null; } | grep -c OCSERV || true)"
 [ "$rules" = "0" ] || fail "$rules OCSERV iptables rules left after stop"
 
