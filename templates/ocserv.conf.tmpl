@@ -320,13 +320,13 @@ idle-timeout = 1200
 # traffic) before being disconnected. Unset to disable.
 mobile-idle-timeout = 1800
 
-# The time (in seconds) that a client is not allowed to reconnect after 
-# a failed authentication attempt.
-min-reauth-time = 300
+# The duration (in seconds) an IP address remains banned
+# after exceeding max-ban-score (formerly min-reauth-time).
+ban-time = 300
 
 # Banning clients in ocserv works with a point system. IP addresses
 # that get a score over that configured number are banned for
-# min-reauth-time seconds. By default a wrong password attempt is 10 points,
+# ban-time seconds. By default a wrong password attempt is 10 points,
 # a KKDCP POST is 1 point, and a connection is 1 point. Note that
 # due to difference processes being involved the count of points
 # will not be real-time precise.

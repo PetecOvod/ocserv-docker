@@ -77,6 +77,9 @@ for _ in $(seq 60); do
 done
 docker logs "$NAME" 2>&1 | grep "initialized OpenConnect VPN Server" >/dev/null || fail "ocserv did not start in 60 s"
 log "ocserv started: $(docker exec "$NAME" ocserv --version 2>&1 | grep -m1 "OpenConnect")"
+if docker logs "$NAME" 2>&1 | grep -F "was replaced by" >"$WORK/renamed.log"; then
+  cat "$WORK/renamed.log" >&2; fail "the generated ocserv.conf uses a renamed option"
+fi
 
 log "generated server certificate names the server in subjectAltName"
 docker exec "$NAME" openssl x509 -in /etc/ocserv/cert/server-cert.pem -noout -ext subjectAltName \
