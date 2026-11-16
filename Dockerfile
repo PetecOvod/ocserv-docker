@@ -1,6 +1,6 @@
 # === Stage 1: Build ocserv from source ===
 # Base image pinned by tag and multi-arch index digest; bump both together.
-FROM alpine:3.24.4@sha256:93b41ef40b1677fce8fcc64ff4af09daddfacf5040afde618bc46c1e2d1cc7d4 AS builder
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS builder
 
 # To update: bump OCSERV_VERSION and put the sha256 of the new tarball into
 # OCSERV_SHA256 (check the tarball's .sig against the maintainer's GPG key).
@@ -49,7 +49,7 @@ RUN curl -fLO --retry 5 --retry-all-errors https://www.infradead.org/ocserv/down
     DESTDIR=/tmp/build-output meson install -C build --no-rebuild
 
 # === Stage 2: Final runtime image ===
-FROM alpine:3.24.4@sha256:93b41ef40b1677fce8fcc64ff4af09daddfacf5040afde618bc46c1e2d1cc7d4
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 LABEL maintainer="Yaroslav Minaev <mail@minaev.pro>"
 
