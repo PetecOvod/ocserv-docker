@@ -273,6 +273,33 @@ Certificates issued by earlier image versions all have serial number 01, so
 one of them cannot be revoked alone. Renew each of them, then block all of
 them at once with `ocs client revoke-legacy`.
 
+### Keeping the CA key offline
+
+Whoever has the CA key (`/etc/ocserv/cert/ca-key.pem`) can issue client
+certificates that the server accepts. ocserv itself never needs it: it only
+uses `ca.pem`, `crl.pem` (the list is signed for 10 years) and the server
+certificate with its key. The CA key is needed by `ocs client issue`, `renew`,
+`revoke`, `revoke-legacy` and `crl-update`, so you can keep it off the server
+and copy it in only for those:
+
+```bash
+# copy the key out, then move ./ca-key.pem off the server (password manager,
+# encrypted backup); delete it from the container only once the copy is safe
+docker cp ocserv:/etc/ocserv/cert/ca-key.pem ./ca-key.pem
+docker exec ocserv rm /etc/ocserv/cert/ca-key.pem
+
+# later, to issue, renew or revoke:
+docker cp ./ca-key.pem ocserv:/etc/ocserv/cert/ca-key.pem &&
+  docker exec -it ocserv ocs client issue alice --p12
+docker exec ocserv rm /etc/ocserv/cert/ca-key.pem
+```
+
+Without the key these commands stop with `Missing CA`, and the certificates,
+keys and `crl.pem` stay as they were. Keep `crl.pem` and `ca.pem` in the volume:
+if `crl.pem` is lost, the container cannot rebuild it and does not start until
+the key is back. Do not delete `ca.pem` either: without it a new CA is
+generated on the next start, and no existing client certificate is accepted.
+
 ---
 
 ## 🔒 Let’s Encrypt via acme.sh
