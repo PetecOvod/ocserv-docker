@@ -254,6 +254,30 @@ docker stop -t 15 "$NAME" >/dev/null
 docker run --rm -v "$PREFIX-conf:/c" --entrypoint sh "$IMAGE" -c \
   'echo "crl = /etc/ocserv/cert/crl.pem" >> /c/ocserv.conf'
 
+log "CA key kept outside the volume (README): start, login, ocs refuses without changes"
+start
+docker cp -q "$NAME:/etc/ocserv/cert/ca-key.pem" "$WORK/ca-key.pem"
+x "rm /etc/ocserv/cert/ca-key.pem"
+start
+expect accepted alice
+expect rejected carol "revoked"
+state() { x "cd /etc/ocserv && sha256sum cert/crl.pem auth/clients/alice-* && ls -A cert/revoked auth/clients"; }
+BEFORE="$(state)"
+ocs_fails "Missing CA" client issue frank
+ocs_fails "Missing CA" client renew alice
+ocs_fails "Missing CA" client revoke alice
+ocs_fails "Missing CA" client crl-update
+[ "$(state)" = "$BEFORE" ] || fail "ocs changed certificates, keys or crl.pem without the CA key"
+x "[ ! -e /etc/ocserv/cert/ca-key.pem ]" || fail "ca-key.pem is back"
+expect accepted alice
+log "  key copied in for an issue, then removed again"
+docker cp -q "$WORK/ca-key.pem" "$NAME:/etc/ocserv/cert/ca-key.pem"
+docker exec "$NAME" ocs client issue frank >/dev/null || fail "issue frank with the key copied in"
+x "rm /etc/ocserv/cert/ca-key.pem"
+fetch frank
+expect accepted frank
+docker stop -t 15 "$NAME" >/dev/null
+
 log "missing crl.pem and no CA key: the start stops with a clear error"
 volume nokey
 docker run --rm -v "$PREFIX-cert:/from" -v "$PREFIX-nokey:/to" --entrypoint sh "$IMAGE" -c \
