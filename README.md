@@ -30,6 +30,7 @@ A production-ready Docker build for OpenConnect VPN Server (`ocserv`) with certi
 │  └─ healthcheck.sh   # container health check
 ├─ templates/
 │  ├─ ca.tmpl
+│  ├─ client.tmpl
 │  ├─ ocserv.conf.tmpl
 │  └─ server.tmpl
 ```
@@ -152,6 +153,9 @@ Toggle DTLS/UDP with:
 - `ENABLE_DTLS=false`: DTLS disabled, `udp-port` is set to `0` (TCP-only).
 
 If you set `ENABLE_DTLS=false`, you can also omit the UDP port mapping (`443/udp`).
+
+`ENABLE_DTLS` is applied when `ocserv.conf` is generated (first start). For an
+existing file, change its `udp-port` line and restart the container.
 
 ---
 
@@ -289,7 +293,7 @@ docker exec -it ocserv ocs cert issue http
 Full provider list & required variables:  
 https://github.com/acmesh-official/acme.sh/wiki/dnsapi
 
-1) Put provider secrets in `/etc/acme/provider.env` (mounted from `./acme`). Example (Cloudflare):
+1) Put provider secrets in `/etc/acme/provider.env` (mounted from `./ocserv/acme`). Example (Cloudflare):
 ```
 ACME_DNS=dns_cf
 CF_Token=YOUR_CF_API_TOKEN
@@ -308,7 +312,7 @@ that is already there, for example one mounted read-only as
 `/usr/local/share/dnsapi/<name>.sh`.
 
 Provider secrets are saved by acme.sh into `/etc/acme/account.conf` (the
-`./acme` volume), so they persist and are reused automatically on renewal.
+`./ocserv/acme` volume), so they persist and are reused automatically on renewal.
 Files in `/etc/acme` are run as shell code, so the script refuses to work if any
 of them is writable by group or others.
 
