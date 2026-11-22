@@ -11,6 +11,8 @@ A production-ready Docker build for OpenConnect VPN Server (`ocserv`) with certi
 - No `--privileged` (uses only `NET_ADMIN`, and `/dev/net/tun`)
 - NAT/forwarding rules in dedicated chains (`OCSERV_NAT`, `OCSERV_FWD`) with **automatic cleanup** on stop
 - Supports both nft and legacy iptables backends
+- `ocs` management CLI: users, client certificates with revocation (CRL), server certificate, sessions
+- Runs under `tini`: `SIGHUP` reloads ocserv, `docker stop` exits cleanly, built-in health check
 
 ---
 
@@ -21,14 +23,16 @@ A production-ready Docker build for OpenConnect VPN Server (`ocserv`) with certi
 ├─ Dockerfile
 ├─ scripts/
 │  ├─ start.sh         # self-signed bootstrap, iptables setup/cleanup, start ocserv
-│  └─ get-cert.sh      # issue/renew Let's Encrypt certs via acme.sh (HTTP-01 / DNS-01)
+│  ├─ ocs              # management CLI (users, client certs, server cert, sessions)
+│  ├─ get-cert.sh      # issue/renew Let's Encrypt certs via acme.sh (HTTP-01 / DNS-01)
+│  ├─ make-client.sh   # issue a client certificate (+ .p12)
+│  ├─ crl.sh           # certificate revocation list
+│  └─ healthcheck.sh   # container health check
 ├─ templates/
 │  ├─ ca.tmpl
 │  ├─ ocserv.conf.tmpl
 │  └─ server.tmpl
 ```
-
----
 
 ---
 
@@ -107,7 +111,7 @@ cap_add:
 ```yaml
 services:
   ocserv:
-    image: docker.io/petecovod/ocserv:0.3
+    image: docker.io/petecovod/ocserv:0.7
     container_name: ocserv
     ports:
       - "43443:443/tcp"
@@ -122,8 +126,6 @@ services:
       - ./ocserv/acme:/etc/acme
       - ./ocserv/config:/etc/ocserv/config
     environment:
-      - PUID=1027 # Change me use id $user for check
-      - PGID=100 # Change me use id $user for check
       - TZ=Europe/Moscow
       - SRV_CN=vpn.example.com # Change me
       - SRV_CA=VPN
@@ -163,7 +165,7 @@ On first boot `start.sh` will:
 - render templates with env (`SRV_CN`, `SRV_CA`, etc.) via `envsubst` and write `/etc/ocserv/config/ocserv.conf`,
 - generate a self-signed CA and server certificate under `/etc/ocserv/cert`,
 - configure iptables in dedicated chains and attach to `POSTROUTING`/`FORWARD`,
-- start ocserv (PID 1) and **auto-clean iptables** on exit.
+- start ocserv under `tini` and **auto-clean iptables** on exit.
 
 
 ---
