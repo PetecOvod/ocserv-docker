@@ -155,7 +155,7 @@ expect accepted bob
 # Usage: p12 <name> <ocs flags> <expected lines of 'openssl pkcs12 -info'>...:
 # issue with a .p12, check its protection, certificate and key, log in.
 p12() {
-  n="$1"; flags="$2"; shift 2
+  local n="$1" flags="$2" want; shift 2
   # shellcheck disable=SC2086
   printf 'p12-secret\np12-secret\n' | docker exec -i "$NAME" ocs client issue "$n" $flags >/dev/null 2>&1 \
     || fail "issue $n $flags"
