@@ -152,22 +152,36 @@ docker exec "$NAME" ocs client list | grep -E '^alice +[0-9-]+ +[0-9A-F]+ +valid
 expect accepted alice
 expect accepted bob
 
-log "issue --p12: a bundle that mobile clients import (3DES, SHA-1 MAC)"
-printf 'p12-secret\np12-secret\n' | docker exec -i "$NAME" ocs client issue erin --p12 >/dev/null 2>&1 \
-  || fail "issue erin --p12"
-fetch erin
-docker cp -q "$NAME:/etc/ocserv/auth/clients/erin.p12" "$WORK/erin.p12"
-openssl pkcs12 -in "$WORK/erin.p12" -info -noout -passin pass:p12-secret >"$WORK/p12.info" 2>&1 \
-  || { cat "$WORK/p12.info" >&2; fail "erin.p12 does not open with its password"; }
-for want in "MAC: sha1, Iteration 2048" "Shrouded Keybag: pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048" \
-            "PKCS7 Encrypted data: pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048"; do
-  grep -qF -- "$want" "$WORK/p12.info" || { cat "$WORK/p12.info" >&2; fail "erin.p12: no '$want'"; }
-done
-[ "$(openssl pkcs12 -in "$WORK/erin.p12" -nokeys -clcerts -passin pass:p12-secret | openssl x509 -noout -fingerprint -sha256)" = \
-  "$(openssl x509 -in "$WORK/erin-cert.pem" -noout -fingerprint -sha256)" ] || fail "erin.p12 holds another certificate"
-openssl pkcs12 -in "$WORK/erin.p12" -nocerts -nodes -passin pass:p12-secret 2>/dev/null | openssl pkey -pubout >"$WORK/erin-p12.pub"
-openssl pkey -in "$WORK/erin-key.pem" -pubout | cmp -s - "$WORK/erin-p12.pub" || fail "erin.p12 holds another key"
-expect accepted erin
+# Usage: p12 <name> <ocs flags> <expected lines of 'openssl pkcs12 -info'>...:
+# issue with a .p12, check its protection, certificate and key, log in.
+p12() {
+  n="$1"; flags="$2"; shift 2
+  # shellcheck disable=SC2086
+  printf 'p12-secret\np12-secret\n' | docker exec -i "$NAME" ocs client issue "$n" $flags >/dev/null 2>&1 \
+    || fail "issue $n $flags"
+  fetch "$n"
+  docker cp -q "$NAME:/etc/ocserv/auth/clients/$n.p12" "$WORK/$n.p12"
+  openssl pkcs12 -in "$WORK/$n.p12" -info -noout -passin pass:p12-secret >"$WORK/p12.info" 2>&1 \
+    || { cat "$WORK/p12.info" >&2; fail "$n.p12 does not open with its password"; }
+  for want in "$@"; do
+    grep -qF -- "$want" "$WORK/p12.info" || { cat "$WORK/p12.info" >&2; fail "$n.p12: no '$want'"; }
+  done
+  [ "$(openssl pkcs12 -in "$WORK/$n.p12" -nokeys -clcerts -passin pass:p12-secret | openssl x509 -noout -fingerprint -sha256)" = \
+    "$(openssl x509 -in "$WORK/$n-cert.pem" -noout -fingerprint -sha256)" ] || fail "$n.p12 holds another certificate"
+  openssl pkcs12 -in "$WORK/$n.p12" -nocerts -nodes -passin pass:p12-secret 2>/dev/null | openssl pkey -pubout >"$WORK/$n-p12.pub"
+  openssl pkey -in "$WORK/$n-key.pem" -pubout | cmp -s - "$WORK/$n-p12.pub" || fail "$n.p12 holds another key"
+  expect accepted "$n"
+}
+log "issue --p12: AES-256, SHA-256 MAC, 2048 iterations (mobile clients import it)"
+p12 erin --p12 "MAC: sha256, Iteration 2048" \
+  "Shrouded Keybag: PBES2, PBKDF2, AES-256-CBC, Iteration 2048, PRF hmacWithSHA256" \
+  "PKCS7 Encrypted data: PBES2, PBKDF2, AES-256-CBC, Iteration 2048, PRF hmacWithSHA256"
+log "issue --p12 --legacy: 3DES, SHA-1 MAC"
+p12 gwen "--p12 --legacy" "MAC: sha1, Iteration 2048" \
+  "Shrouded Keybag: pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048" \
+  "PKCS7 Encrypted data: pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048"
+ocs_fails "--legacy only applies to --p12" client issue hank --legacy
+x "[ ! -e /etc/ocserv/auth/clients/hank-cert.pem ]" || fail "hank was issued without --p12"
 
 log "revoke: login refused, session closed, cookie refused, key deleted"
 connect alice; alice_tunnel=$OC_PID
