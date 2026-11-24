@@ -82,22 +82,24 @@ fi
 echo "[INFO] DOMAIN=$DOMAIN  SERVER=$SERVER  ECC=$ECC  STAGING=$STAGING  ACME_HOME=$ACME_HOME"
 
 # --- register / update account ---
+# acme.sh keeps the contact address per CA, not in account.conf, so the
+# address last sent to this CA is remembered here: the account is updated
+# only when ACME_ACCOUNT_EMAIL (or the CA) changes, not on every run.
+EMAIL_STATE="$ACME_HOME/.account-email"
 if [ ! -f "$ACME_HOME/account.conf" ]; then
   echo "[INFO] Registering ACME account"
   if [ -n "${ACME_ACCOUNT_EMAIL:-}" ]; then
     "$ACME_BIN" --home "$ACME_HOME" --register-account --server "$SERVER" -m "$ACME_ACCOUNT_EMAIL" $SFLAG
+    echo "$SERVER $ACME_ACCOUNT_EMAIL" > "$EMAIL_STATE"
   else
     echo "[WARN] ACME_ACCOUNT_EMAIL not set; registering without contact email"
     "$ACME_BIN" --home "$ACME_HOME" --register-account --server "$SERVER" $SFLAG
   fi
-else
-  if [ -n "${ACME_ACCOUNT_EMAIL:-}" ]; then
-    CURRENT_EMAIL="$(sed -n "s/^ACCOUNT_EMAIL='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$ACME_HOME/account.conf" | tail -n 1)"
-    if [ "$CURRENT_EMAIL" != "$ACME_ACCOUNT_EMAIL" ]; then
-      echo "[INFO] Updating ACME account email: '$CURRENT_EMAIL' -> '$ACME_ACCOUNT_EMAIL'"
-      "$ACME_BIN" --home "$ACME_HOME" --update-account --server "$SERVER" -m "$ACME_ACCOUNT_EMAIL"
-    fi
-  fi
+elif [ -n "${ACME_ACCOUNT_EMAIL:-}" ] &&
+     [ "$(cat "$EMAIL_STATE" 2>/dev/null)" != "$SERVER $ACME_ACCOUNT_EMAIL" ]; then
+  echo "[INFO] Setting the ACME account email to '$ACME_ACCOUNT_EMAIL'"
+  "$ACME_BIN" --home "$ACME_HOME" --update-account --server "$SERVER" -m "$ACME_ACCOUNT_EMAIL"
+  echo "$SERVER $ACME_ACCOUNT_EMAIL" > "$EMAIL_STATE"
 fi
 
 # acme.sh --issue exits with 2 when the certificate is not due for renewal

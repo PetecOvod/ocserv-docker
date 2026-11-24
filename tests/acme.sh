@@ -90,6 +90,16 @@ rc="$(get_cert again)"
 [ "$rc" = 0 ] || fail "second run exited with $rc"
 grep "already current" "$WORK/again.log" >/dev/null || fail "second run did not report the certificate as current"
 
+log "account email: set once, not on every run"
+for run in email1 email2; do
+  docker exec -e ACME_ACCOUNT_EMAIL=admin@example.test "$NAME" /scripts/get-cert.sh dns >"$WORK/$run.log" 2>&1 \
+    || { cat "$WORK/$run.log" >&2; fail "$run: get-cert.sh failed"; }
+done
+grep -F "Setting the ACME account email to 'admin@example.test'" "$WORK/email1.log" >/dev/null \
+  || { cat "$WORK/email1.log" >&2; fail "the account email was not set"; }
+grep -F "Setting the ACME account email" "$WORK/email2.log" >/dev/null \
+  && fail "the account email was set again although it did not change"
+
 log "a key that does not match is not installed"
 live="$(served_fp)"
 key="$(docker exec "$NAME" sh -c "ls /etc/acme/${DOMAIN}_ecc/${DOMAIN}.key")"
