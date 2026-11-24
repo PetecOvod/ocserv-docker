@@ -99,6 +99,10 @@ grep -F "Setting the ACME account email to 'admin@example.test'" "$WORK/email1.l
   || { cat "$WORK/email1.log" >&2; fail "the account email was not set"; }
 grep -F "Setting the ACME account email" "$WORK/email2.log" >/dev/null \
   && fail "the account email was set again although it did not change"
+docker exec -e ACME_ACCOUNT_EMAIL=ops@example.test "$NAME" /scripts/get-cert.sh dns >"$WORK/email3.log" 2>&1 \
+  || { cat "$WORK/email3.log" >&2; fail "email3: get-cert.sh failed"; }
+grep -F "Setting the ACME account email to 'ops@example.test'" "$WORK/email3.log" >/dev/null \
+  || { cat "$WORK/email3.log" >&2; fail "a changed account email was not sent"; }
 
 log "a key that does not match is not installed"
 live="$(served_fp)"
