@@ -86,8 +86,8 @@ RUN apk upgrade --no-cache \
 # Install acme.sh from a pinned release (no cron, no profile).
 # To update: bump ACME_VERSION and put the sha256 of the new acme.sh into ACME_SHA256.
 # get-cert.sh fetches DNS plugins from the same release tag (ACME_VERSION), never from master.
-ARG ACME_VERSION=3.1.6
-ARG ACME_SHA256=c7d68b021cfd6380ea83a82962abde5b484779fee0b97d38681dfa1396bbc8d7
+ARG ACME_VERSION=3.1.7
+ARG ACME_SHA256=35bf6b947478666be137f938f77c5089954f120798220e6fff390949c5ea5692
 ENV ACME_VERSION=${ACME_VERSION}
 RUN set -eux; \
     ACME_INSTALL=/usr/local/share; \
