@@ -150,13 +150,14 @@ warn_if_not_enforced() {
   warn "add it to $CONF_FILE and restart the container."
 }
 
-# Parse "<name> [--p12] [--days N]" into name, p12 and CLIENT_CERT_DAYS.
+# Parse "<name> [--p12 [--legacy]] [--days N]" into name, p12 and CLIENT_CERT_DAYS.
 client_args() {
   usage_line="$1"; shift
-  name=""; p12=""
+  name=""; p12=""; legacy=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --p12)  p12="export" ;;
+      --legacy) legacy=1 ;;
       --days) [ $# -ge 2 ] || die "--days needs a number — usage: $usage_line"
               CLIENT_CERT_DAYS="$2"; export CLIENT_CERT_DAYS; shift ;;
       -*)     die "unknown flag '$1' — usage: $usage_line" ;;
@@ -165,6 +166,10 @@ client_args() {
     shift
   done
   require_name "$name" "usage: $usage_line"
+  if [ -n "$legacy" ]; then
+    [ -n "$p12" ] || die "--legacy only applies to --p12 — usage: $usage_line"
+    p12="export-legacy"
+  fi
 }
 
 make_client() {
@@ -196,7 +201,7 @@ cmd_client() {
       done
       ;;
     issue|new|create)
-      client_args "$PROG client issue <name> [--p12] [--days N]" "$@"
+      client_args "$PROG client issue <name> [--p12 [--legacy]] [--days N]" "$@"
       client_lock
       if [ -f "$CLIENTS_DIR/$name-cert.pem" ]; then
         die "'$name' already has a certificate — '$PROG client renew $name' replaces it and revokes the old one"
@@ -206,7 +211,7 @@ cmd_client() {
       ok "client files are in $CLIENTS_DIR/"
       ;;
     renew)
-      client_args "$PROG client renew <name> [--p12] [--days N]" "$@"
+      client_args "$PROG client renew <name> [--p12 [--legacy]] [--days N]" "$@"
       client_lock
       cert="$CLIENTS_DIR/$name-cert.pem"
       [ -f "$cert" ] || die "'$name' has no certificate — use '$PROG client issue $name'"
@@ -290,11 +295,13 @@ $PROG client — client certificates (certificate auth)
   $PROG client list                  certificates: expiry, serial, status
   $PROG client issue <name>          create a client key + certificate
       [--p12]                        also export a .p12 bundle (for import on devices;
-                                     asks for its password)
+                                     asks for its password; AES-256)
+      [--legacy]                     with --p12: 3DES bundle for clients that cannot
+                                     read AES ones (older Windows and macOS)
       [--days N]                     valid for N days (default: CLIENT_CERT_DAYS or 3650),
                                      never past the CA's expiry
   $PROG client renew <name>          new key + certificate; the old one is revoked
-      [--p12] [--days N]             (active sessions stay connected)
+      [--p12 [--legacy]] [--days N]  (active sessions stay connected)
   $PROG client revoke <name>         revoke, close the user's sessions, delete the key
   $PROG client revoke-legacy         revoke every certificate with the old shared
       [--force]                      serial 01 (issued before random serial numbers)

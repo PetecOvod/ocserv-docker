@@ -1,8 +1,8 @@
 #!/bin/sh
 # Issue (or reissue) a client certificate signed by the local CA.
-# Usage: make-client.sh <name> [export]
+# Usage: make-client.sh <name> [export|export-legacy]
 # Files: /etc/ocserv/auth/clients/<name>-key.pem, <name>-cert.pem and, with
-# "export", <name>.p12. Valid for CLIENT_CERT_DAYS days (default 3650), but
+# "export", <name>.p12 ("export-legacy": a 3DES bundle for old clients). Valid for CLIENT_CERT_DAYS days (default 3650), but
 # never past the expiry of the CA.
 # A reissue replaces the key and the certificate together; a run that fails
 # leaves the previous pair as it was. A reissue does not revoke the previous
@@ -17,13 +17,17 @@ CA_KEY="$CERT_DIR/ca-key.pem"
 CA_PEM="$CERT_DIR/ca.pem"
 
 usage() {
-  echo "Usage: $0 <name> [export]"
+  echo "Usage: $0 <name> [export|export-legacy]"
   echo "Creates a client certificate signed by the local CA and stores it under $CLIENTS_DIR"
 }
 
 NAME="${1:-}"
 EXPORT="${2:-}"
 [ -n "$NAME" ] || { usage; exit 1; }
+case "$EXPORT" in
+  ""|export|export-legacy) ;;
+  *) usage; exit 1 ;;
+esac
 
 # The name becomes part of file paths and of the certificate template, so
 # only plain names are accepted (also when this script is run without ocs).
@@ -97,15 +101,19 @@ TZ=UTC certtool --generate-certificate --load-privkey "$WORK/key.pem" \
   --load-ca-certificate "$CA_PEM" --load-ca-privkey "$CA_KEY" \
   --template "$WORK/client.tmpl" --outfile "$WORK/cert.pem"
 
-# The bundle uses 3DES and a SHA-1 MAC with 2048 iterations, which mobile
-# clients import: some refuse certtool's SHA-256 MAC with 600000 iterations.
-# The password is asked for on the terminal, or read from standard input
-# when there is none.
-if [ "$EXPORT" = "export" ]; then
-  echo "[INFO] Exporting to PKCS#12: $P12"
+# The bundle uses AES-256 and a SHA-256 MAC with 2048 iterations; mobile
+# clients refuse certtool's 600000 iterations. "export-legacy" uses 3DES and
+# a SHA-1 MAC instead, for clients that cannot read AES bundles (older
+# Windows and macOS). The password is asked for on the terminal, or read from
+# standard input when there is none.
+case "$EXPORT" in
+  export)        cipher=AES-256; set -- -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 ;;
+  export-legacy) cipher=3DES;    set -- -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 ;;
+esac
+if [ -n "$EXPORT" ]; then
+  echo "[INFO] Exporting to PKCS#12 ($cipher): $P12"
   openssl pkcs12 -export -inkey "$WORK/key.pem" -in "$WORK/cert.pem" -name "$NAME" \
-    -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -iter 2048 \
-    -out "$WORK/bundle.p12"
+    "$@" -iter 2048 -out "$WORK/bundle.p12"
 fi
 
 mv -f "$WORK/key.pem" "$KEY"

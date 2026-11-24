@@ -252,7 +252,9 @@ docker exec -it ocserv ocs client issue alice --p12
 Files are stored under `/etc/ocserv/auth/clients/`:
 - `alice-key.pem`, `alice-cert.pem`
 - optional `alice.p12` (with `--p12`): asks for a password that protects the
-  bundle; without a terminal, reads it from standard input (twice, one per line)
+  bundle; without a terminal, reads it from standard input (twice, one per line).
+  The bundle is encrypted with AES-256. For a client that cannot import it
+  (older Windows and macOS), add `--legacy` for a 3DES bundle.
 
 A certificate is valid for `CLIENT_CERT_DAYS` days (default 3650), or for
 `--days N` given to `issue` / `renew`, but never past the expiry of the CA.
